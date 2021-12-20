@@ -30,39 +30,51 @@ Background Video Train/Valid
 
 """
 
-
 DATA_PATHS = {
-    
     'videomatte': {
-        'train': '../matting-data/VideoMatte240K_JPEG_SD/train',
-        'valid': '../matting-data/VideoMatte240K_JPEG_SD/valid',
+        'train':
+        '/media/1T-HDD/RobustVideoMatting/VideoMatte240K_JPEG_SD/train',
+        'valid':
+        '/media/1T-HDD/RobustVideoMatting/VideoMatte240K_JPEG_SD/valid',
     },
     'imagematte': {
-        'train': '../matting-data/ImageMatte/train',
-        'valid': '../matting-data/ImageMatte/valid',
+        'train':
+        '/media/1T-HDD/RobustVideoMatting/ImageMatte/train',
+        'valid':
+        '/media/1T-HDD/RobustVideoMatting/ImageMatte/valid',
     },
     'background_images': {
-        'train': '../matting-data/Backgrounds/train',
-        'valid': '../matting-data/Backgrounds/valid',
+        'train':
+        '/media/1T-HDD/RobustVideoMatting/Background_Images/train',
+        'valid':
+        '/media/1T-HDD/RobustVideoMatting/Background_Images/valid',
     },
     'background_videos': {
-        'train': '../matting-data/BackgroundVideos/train',
-        'valid': '../matting-data/BackgroundVideos/valid',
+        'train':
+        '/media/1T-HDD/RobustVideoMatting/Background_Videos/train',
+        'valid':
+        '/media/1T-HDD/RobustVideoMatting/Background_Videos/valid',
     },
-    
-    
+    'natural_images': '/media/1T-HDD/RobustVideoMatting/Real_Human/image_allframe'
+    ,
     'coco_panoptic': {
-        'imgdir': '../matting-data/coco/train2017/',
-        'anndir': '../matting-data/coco/panoptic_train2017/',
-        'annfile': '../matting-data/coco/annotations/panoptic_train2017.json',
+        'imgdir':
+        '/media/1T-HDD/RobustVideoMatting/coco/train2017/',
+        'anndir':
+        '/media/1T-HDD/RobustVideoMatting/coco/panoptic_train2017/',
+        'annfile':
+        '/media/1T-HDD/RobustVideoMatting/coco/annotations/panoptic_train2017.json',
     },
     'spd': {
-        'imgdir': '../matting-data/SuperviselyPersonDataset/img',
-        'segdir': '../matting-data/SuperviselyPersonDataset/seg',
+        'imgdir':
+        '/media/1T-HDD/RobustVideoMatting/SuperviselyPersonDataset/img',
+        'segdir':
+        '/media/1T-HDD/RobustVideoMatting/SuperviselyPersonDataset/seg',
     },
     'youtubevis': {
-        'videodir': '../matting-data/YouTubeVIS/train/JPEGImages',
-        'annfile': '../matting-data/YouTubeVIS/train/instances.json',
+        'videodir':
+        '/media/1T-HDD/RobustVideoMatting/YouTubeVIS/train/JPEGImages',
+        'annfile':
+        '/media/1T-HDD/RobustVideoMatting/YouTubeVIS/train/instances.json',
     }
-    
 }

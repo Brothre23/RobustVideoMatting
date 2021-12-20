@@ -36,13 +36,9 @@ class MattingNetwork(nn.Module):
             self.refiner = DeepGuidedFilterRefiner()
         else:
             self.refiner = FastGuidedFilterRefiner()
-        
+
     def forward(self,
                 src: Tensor,
-                r1: Optional[Tensor] = None,
-                r2: Optional[Tensor] = None,
-                r3: Optional[Tensor] = None,
-                r4: Optional[Tensor] = None,
                 downsample_ratio: float = 1,
                 segmentation_pass: bool = False):
         
@@ -53,7 +49,7 @@ class MattingNetwork(nn.Module):
         
         f1, f2, f3, f4 = self.backbone(src_sm)
         f4 = self.aspp(f4)
-        hid, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4)
+        hid = self.decoder(src_sm, f1, f2, f3, f4)
         
         if not segmentation_pass:
             fgr_residual, pha = self.project_mat(hid).split([3, 1], dim=-3)
@@ -62,10 +58,11 @@ class MattingNetwork(nn.Module):
             fgr = fgr_residual + src
             fgr = fgr.clamp(0., 1.)
             pha = pha.clamp(0., 1.)
-            return [fgr, pha, *rec]
+            return [fgr, pha]
         else:
             seg = self.project_seg(hid)
-            return [seg, *rec]
+            return seg
+
 
     def _interpolate(self, x: Tensor, scale_factor: float):
         if x.ndim == 5:

@@ -60,6 +60,7 @@ def convert_video(model,
     assert output_type in ['video', 'png_sequence'], 'Only support "video" and "png_sequence" output modes.'
     assert seq_chunk >= 1, 'Sequence chunk must be >= 1'
     assert num_workers >= 0, 'Number of workers must be >= 0'
+    assert output_video_mbps == None or output_type == 'video', 'Mbps is not available for png_sequence output.'
     
     # Initialize transform
     if input_resize is not None:
@@ -100,9 +101,9 @@ def convert_video(model,
         if output_composition is not None:
             writer_com = ImageSequenceWriter(output_composition, 'png')
         if output_alpha is not None:
-            writer_pha = ImageSequenceWriter(output_alpha, 'png')
+            writer_pha = VideoWriter(output_alpha, 'png')
         if output_foreground is not None:
-            writer_fgr = ImageSequenceWriter(output_foreground, 'png')
+            writer_fgr = VideoWriter(output_foreground, 'png')
 
     # Inference
     model = model.eval()
@@ -117,14 +118,15 @@ def convert_video(model,
     try:
         with torch.no_grad():
             bar = tqdm(total=len(source), disable=not progress, dynamic_ncols=True)
-            rec = [None] * 4
+            # rec = [None] * 4
             for src in reader:
 
                 if downsample_ratio is None:
                     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
 
                 src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
-                fgr, pha, *rec = model(src, *rec, downsample_ratio)
+                # fgr, pha, *rec = model(src, *rec, downsample_ratio)
+                fgr, pha = model(src, downsample_ratio)
 
                 if output_foreground is not None:
                     writer_fgr.write(fgr[0])
@@ -160,9 +162,9 @@ def auto_downsample_ratio(h, w):
 class Converter:
     def __init__(self, variant: str, checkpoint: str, device: str):
         self.model = MattingNetwork(variant).eval().to(device)
-        self.model.load_state_dict(torch.load(checkpoint, map_location=device))
-        self.model = torch.jit.script(self.model)
-        self.model = torch.jit.freeze(self.model)
+        self.model.load_state_dict(torch.load(checkpoint, map_location=device)['model'])
+        # self.model = torch.jit.script(self.model)
+        # self.model = torch.jit.freeze(self.model)
         self.device = device
     
     def convert(self, *args, **kwargs):
@@ -203,5 +205,9 @@ if __name__ == '__main__':
         num_workers=args.num_workers,
         progress=not args.disable_progress
     )
+
+    # model = torch.hub.load("PeterL1n/RobustVideoMatting", "mobilenetv3")
+    # convert_video = torch.hub.load("PeterL1n/RobustVideoMatting", "converter")
+    # convert_video(model=model, downsample_ratio=0.25 ,input_source="./inference/pre-trained/4/test.mp4", output_type="video", output_composition="./inference/pre-trained/4/com.mp4", output_alpha="./inference/pre-trained/4/alpha.mp4", output_foreground="./inference/pre-trained/4/fg.mp4", output_video_mbps=4 ,seq_chunk=15, progress=True)
     
     

@@ -15,16 +15,47 @@ class RecurrentDecoder(nn.Module):
         self.decode0 = OutputBlock(decoder_channels[2], 3, decoder_channels[3])
 
     def forward(self,
-                s0: Tensor, f1: Tensor, f2: Tensor, f3: Tensor, f4: Tensor,
-                r1: Optional[Tensor], r2: Optional[Tensor],
-                r3: Optional[Tensor], r4: Optional[Tensor]):
+                s0: Tensor, f1: Tensor, f2: Tensor, f3: Tensor, f4: Tensor):
+        # x: output from the previous stage
+        # f: output from the encoder block
+        # s: downsampled feature map after average pooling
+        # r: output from the previous stage (hidden state)
         s1, s2, s3 = self.avgpool(s0)
-        x4, r4 = self.decode4(f4, r4)
-        x3, r3 = self.decode3(x4, f3, s3, r3)
-        x2, r2 = self.decode2(x3, f2, s2, r2)
-        x1, r1 = self.decode1(x2, f1, s1, r1)
+        x4 = self.decode4(f4)
+        x3 = self.decode3(x4, f3, s3)
+        x2 = self.decode2(x3, f2, s2)
+        x1 = self.decode1(x2, f1, s1)
         x0 = self.decode0(x1, s0)
-        return x0, r1, r2, r3, r4
+        return x0
+
+
+class SelfAttention(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.conv_q = nn.Conv3d(channels, channels // 8, kernel_size=(3, 1, 1), padding=(1, 0, 0))
+        self.conv_k = nn.Conv3d(channels, channels // 8, kernel_size=(3, 1, 1), padding=(1, 0, 0))
+        self.conv_v = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
+        self.softmax = nn.Softmax(2)
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+
+    def forward(self, x):
+        b, t, c, h, w = x.size()
+        x = torch.permute(x, (0, 2, 1, 3, 4))
+        
+        x_q = self.conv_q(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+        x_k = self.conv_k(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+        x_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+
+        x_k = torch.transpose(x_k, dim0=1, dim1=2)
+        energy = torch.bmm(x_q, x_k)
+        heat = self.softmax(energy)
+
+        out = torch.bmm(heat, x_v)
+        out = out.view(b, t, c, h, w)
+        out = self.gamma * out + x.permute(0, 2, 1, 3, 4)
+
+        return out
     
 
 class AvgPool(nn.Module):
@@ -58,13 +89,11 @@ class BottleneckBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.channels = channels
-        self.gru = ConvGRU(channels // 2)
-        
-    def forward(self, x, r: Optional[Tensor]):
-        a, b = x.split(self.channels // 2, dim=-3)
-        b, r = self.gru(b, r)
-        x = torch.cat([a, b], dim=-3)
-        return x, r
+        self.attention = SelfAttention(channels)
+
+    def forward(self, x):
+        x = self.attention(x)
+        return x
 
     
 class UpsamplingBlock(nn.Module):
@@ -75,21 +104,18 @@ class UpsamplingBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(True),
+            nn.ELU(True),
         )
-        self.gru = ConvGRU(out_channels // 2)
+        self.attention = SelfAttention(out_channels)
 
-    def forward_single_frame(self, x, f, s, r: Optional[Tensor]):
+    def forward_single_frame(self, x, f, s):
         x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
-        a, b = x.split(self.out_channels // 2, dim=1)
-        b, r = self.gru(b, r)
-        x = torch.cat([a, b], dim=1)
-        return x, r
-    
-    def forward_time_series(self, x, f, s, r: Optional[Tensor]):
+        return x
+
+    def forward_time_series(self, x, f, s):
         B, T, _, H, W = s.shape
         x = x.flatten(0, 1)
         f = f.flatten(0, 1)
@@ -99,16 +125,15 @@ class UpsamplingBlock(nn.Module):
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
-        a, b = x.split(self.out_channels // 2, dim=2)
-        b, r = self.gru(b, r)
-        x = torch.cat([a, b], dim=2)
-        return x, r
-    
-    def forward(self, x, f, s, r: Optional[Tensor]):
+        x = self.attention(x)
+        return x
+
+
+    def forward(self, x, f, s):
         if x.ndim == 5:
-            return self.forward_time_series(x, f, s, r)
+            return self.forward_time_series(x, f, s)
         else:
-            return self.forward_single_frame(x, f, s, r)
+            return self.forward_single_frame(x, f, s)
 
 
 class OutputBlock(nn.Module):
@@ -118,10 +143,10 @@ class OutputBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(True),
+            nn.ELU(True),
             nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(True),
+            nn.ELU(True),
         )
         
     def forward_single_frame(self, x, s):

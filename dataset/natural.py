@@ -6,9 +6,9 @@ from PIL import Image
 from .augmentation import MotionAugmentation
 
 
-class VideoMatteDataset(Dataset):
+class NaturalImageDataset(Dataset):
     def __init__(self,
-                 videomatte_dir,
+                 natural_image_dir,
                  background_image_dir,
                  background_video_dir,
                  size,
@@ -21,36 +21,35 @@ class VideoMatteDataset(Dataset):
         self.background_video_clips = sorted(os.listdir(background_video_dir))
         self.background_video_frames = [sorted(os.listdir(os.path.join(background_video_dir, clip)))
                                         for clip in self.background_video_clips]
-        
-        self.videomatte_dir = videomatte_dir
-        self.videomatte_clips = sorted(os.listdir(os.path.join(videomatte_dir, 'fgr')))
-        self.videomatte_frames = [sorted(os.listdir(os.path.join(videomatte_dir, 'fgr', clip))) 
-                                  for clip in self.videomatte_clips]
-        self.videomatte_idx = [(clip_idx, frame_idx) 
-                               for clip_idx in range(len(self.videomatte_clips)) 
-                               for frame_idx in range(0, len(self.videomatte_frames[clip_idx]), seq_length)]
+
+        self.natural_image_dir = natural_image_dir
+        self.natural_image_clips = sorted(os.listdir(natural_image_dir))
+        self.natural_image_frames = [sorted(os.listdir(os.path.join(natural_image_dir, clip))) 
+                                    for clip in self.natural_image_clips]
+        self.natural_image_idx = [(clip_idx, frame_idx) 
+                                    for clip_idx in range(len(self.natural_image_clips)) 
+                                    for frame_idx in range(0, len(self.natural_image_frames[clip_idx]), seq_length)]
+
         self.size = size
         self.seq_length = seq_length
         self.seq_sampler = seq_sampler
         self.transform = transform
 
     def __len__(self):
-        return len(self.videomatte_idx)
+        return len(self.natural_image_idx)
     
     def __getitem__(self, idx):
         if random.random() < 0.5:
-            bgr_0 = self._get_random_image_background()
-            bgr_1 = self._get_random_image_background()
+            bgrs = self._get_random_image_background()
         else:
-            bgr_0 = self._get_random_video_background()
-            bgr_1 = self._get_random_video_background()
+            bgrs = self._get_random_video_background()
         
-        fgrs, phas = self._get_videomatte(idx)
+        srcs = self._get_natural_image(idx)
         
         if self.transform is not None:
-            return self.transform(fgrs, phas, bgr_0, bgr_1)
+            srcs, _, bgrs, _ = self.transform(srcs, srcs, bgrs, bgrs)
         
-        return fgrs, phas, bgr_0, bgr_1
+        return srcs, bgrs
     
     def _get_random_image_background(self):
         with Image.open(os.path.join(self.background_image_dir, random.choice(self.background_image_files))) as bgr:
@@ -72,20 +71,17 @@ class VideoMatteDataset(Dataset):
             bgrs.append(bgr)
         return bgrs
     
-    def _get_videomatte(self, idx):
-        clip_idx, frame_idx = self.videomatte_idx[idx]
-        clip = self.videomatte_clips[clip_idx]
-        frame_count = len(self.videomatte_frames[clip_idx])
-        fgrs, phas = [], []
+    def _get_natural_image(self, idx):
+        clip_idx, frame_idx = self.natural_image_idx[idx]
+        clip = self.natural_image_clips[clip_idx]
+        frame_count = len(self.natural_image_frames[clip_idx])
+        srcs = []
         for i in self.seq_sampler(self.seq_length):
-            frame = self.videomatte_frames[clip_idx][(frame_idx + i) % frame_count]
-            with Image.open(os.path.join(self.videomatte_dir, 'fgr', clip, frame)) as fgr, \
-                 Image.open(os.path.join(self.videomatte_dir, 'pha', clip, frame)) as pha:
-                    fgr = self._downsample_if_needed(fgr.convert('RGB'))
-                    pha = self._downsample_if_needed(pha.convert('L'))
-            fgrs.append(fgr)
-            phas.append(pha)
-        return fgrs, phas
+            frame = self.natural_image_frames[clip_idx][(frame_idx + i) % frame_count]
+            with Image.open(os.path.join(self.natural_image_dir, clip, frame)) as src:
+                    src = self._downsample_if_needed(src.convert('RGB'))
+            srcs.append(src)
+        return srcs
     
     def _downsample_if_needed(self, img):
         w, h = img.size
@@ -96,7 +92,7 @@ class VideoMatteDataset(Dataset):
             img = img.resize((w, h))
         return img
 
-class VideoMatteTrainAugmentation(MotionAugmentation):
+class NaturalImageAugmentation(MotionAugmentation):
     def __init__(self, size):
         super().__init__(
             size=size,
@@ -109,19 +105,4 @@ class VideoMatteTrainAugmentation(MotionAugmentation):
             prob_blur=0.02,
             prob_hflip=0.5,
             prob_pause=0.03,
-        )
-
-class VideoMatteValidAugmentation(MotionAugmentation):
-    def __init__(self, size):
-        super().__init__(
-            size=size,
-            prob_fgr_affine=0,
-            prob_bgr_affine=0,
-            prob_noise=0,
-            prob_color_jitter=0,
-            prob_grayscale=0,
-            prob_sharpness=0,
-            prob_blur=0,
-            prob_hflip=0,
-            prob_pause=0,
         )

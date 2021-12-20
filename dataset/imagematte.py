@@ -29,20 +29,23 @@ class ImageMatteDataset(Dataset):
         self.transform = transform
         
     def __len__(self):
-        return max(len(self.imagematte_files), len(self.background_image_files) + len(self.background_video_clips))
+        # return max(len(self.imagematte_files), len(self.background_image_files) + len(self.background_video_clips))
+        return len(self.imagematte_files) * 10
     
     def __getitem__(self, idx):
         if random.random() < 0.5:
-            bgrs = self._get_random_image_background()
+            bgr_0 = self._get_random_image_background()
+            bgr_1 = self._get_random_image_background()
         else:
-            bgrs = self._get_random_video_background()
+            bgr_0 = self._get_random_video_background()
+            bgr_1 = self._get_random_video_background()
         
         fgrs, phas = self._get_imagematte(idx)
         
         if self.transform is not None:
-            return self.transform(fgrs, phas, bgrs)
+            return self.transform(fgrs, phas, bgr_0, bgr_1)
         
-        return fgrs, phas, bgrs
+        return fgrs, phas, bgr_0, bgr_1
     
     def _get_imagematte(self, idx):
         with Image.open(os.path.join(self.imagematte_dir, 'fgr', self.imagematte_files[idx % len(self.imagematte_files)])) as fgr, \
