@@ -3,6 +3,7 @@ from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from typing import Tuple, Optional
+from .D3D.modules.deform_conv import *
 
 class RecurrentDecoder(nn.Module):
     def __init__(self, feature_channels, decoder_channels):
@@ -56,6 +57,21 @@ class SelfAttention(nn.Module):
         out = self.gamma * out + x.permute(0, 2, 1, 3, 4)
 
         return out
+
+
+class DeformableConvolution(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = DeformConvPack(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x):
+        x = torch.permute(x, (0, 2, 1, 3, 4))
+        x = x.contiguous()
+        x_conv = self.conv(x)
+        out = self.gamma * x_conv.permute(0, 2, 1, 3, 4) + x.permute(0, 2, 1, 3, 4)
+        return out
+
     
 
 class AvgPool(nn.Module):
@@ -89,10 +105,14 @@ class BottleneckBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.channels = channels
-        self.attention = SelfAttention(channels)
+        # self.attention = SelfAttention(channels)
+        self.deform = DeformableConvolution(channels)
 
     def forward(self, x):
-        x = self.attention(x)
+        # x = self.attention(x)
+        with torch.cuda.amp.autocast(enabled=False):
+            x = x.float()
+            x = self.deform(x)
         return x
 
     
@@ -100,16 +120,20 @@ class UpsamplingBlock(nn.Module):
     def __init__(self, in_channels, skip_channels, src_channels, out_channels):
         super().__init__()
         self.out_channels = out_channels
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        # self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.upsample = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=3, stride=2, padding=1)
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ELU(True),
         )
         self.attention = SelfAttention(out_channels)
+        # self.deform = DeformableConvolution(out_channels)
 
     def forward_single_frame(self, x, f, s):
-        x = self.upsample(x)
+        size = list(x.size())
+        size[2:4] = [value*2 for value in size[2:4]]
+        x = self.upsample(x, output_size = size)
         x = x[:, :, :s.size(2), :s.size(3)]
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
@@ -120,12 +144,17 @@ class UpsamplingBlock(nn.Module):
         x = x.flatten(0, 1)
         f = f.flatten(0, 1)
         s = s.flatten(0, 1)
-        x = self.upsample(x)
+        size = list(x.size())
+        size[2:4] = [value*2 for value in size[2:4]]
+        x = self.upsample(x, output_size = size)
         x = x[:, :, :H, :W]
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
         x = self.attention(x)
+        # with torch.cuda.amp.autocast(enabled=False):
+        #     x = x.float()
+        #     x = self.deform(x)
         return x
 
 

@@ -5,7 +5,7 @@ from einops import repeat
 # --------------------------------------------------------------------------------- Train Loss
 
 
-def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag, of_model):
+def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
     """
     Args:
         pred_fgr: Shape(B, T, 3, H, W)
