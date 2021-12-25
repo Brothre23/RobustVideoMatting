@@ -1,10 +1,11 @@
 import torch
 from torch.nn import functional as F
+from einops import repeat
 
 # --------------------------------------------------------------------------------- Train Loss
 
 
-def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
+def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag, of_model):
     """
     Args:
         pred_fgr: Shape(B, T, 3, H, W)
@@ -14,7 +15,7 @@ def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
     """
     loss = dict()
     # alpha losses
-    loss[f'{tag}/pha_l2'] = F.l2_loss(pred_pha, true_pha)
+    loss[f'{tag}/pha_l2'] = F.mse_loss(pred_pha, true_pha)
     loss[f'{tag}/pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
     loss[f'{tag}/pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1], 
                                               true_pha[:, 1:] - true_pha[:, :-1]) * 5
@@ -22,13 +23,13 @@ def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
     true_msk = true_pha.gt(0)
     pred_fgr = pred_fgr * true_msk
     true_fgr = true_fgr * true_msk
-    loss[f'{tag}/fgr_l2'] = F.l2_loss(pred_fgr, true_fgr)
+    loss[f'{tag}/fgr_l2'] = F.mse_loss(pred_fgr, true_fgr)
     loss[f'{tag}/fgr_laplacian'] = laplacian_loss(pred_fgr.flatten(0, 1), true_fgr.flatten(0, 1))
     loss[f'{tag}/fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
                                        true_fgr[:, 1:] - true_fgr[:, :-1]) * 5
     # Total
-    loss[f'{tag}/total'] = loss[f'{tag}/pha_l1'] + loss[f'{tag}/pha_coherence'] + loss[f'{tag}/pha_laplacian'] \
-                         + loss[f'{tag}/fgr_l1'] + loss[f'{tag}/fgr_coherence'] + loss[f'{tag}/fgr_laplacian']
+    loss[f'{tag}/total'] = loss[f'{tag}/pha_l2'] + loss[f'{tag}/pha_coherence'] + loss[f'{tag}/pha_laplacian'] \
+                         + loss[f'{tag}/fgr_l2'] + loss[f'{tag}/fgr_coherence'] + loss[f'{tag}/fgr_laplacian']
 
     return loss
 
@@ -64,6 +65,35 @@ def segmentation_loss(pred_seg, true_seg):
         true_seg: Shape(B, T, 1, H, W)
     """
     return F.binary_cross_entropy_with_logits(pred_seg, true_seg)
+
+
+# def optical_flow_loss(pred, true, size, op_model, channel):
+#     pred_op_list = []
+#     true_op_list = []
+
+#     for i in range(size - 1):
+#         padder = InputPadder(pred[:, i, :, :, :].shape)
+
+#         image1, image2 = pred[:, i, :, :, :], pred[:, i, :, :, :]
+#         if channel == 1:
+#             image1 = repeat(image1, 'b c h w -> b (repeat c) h w', repeat=3)
+#             image2 = repeat(image2, 'b c h w -> b (repeat c) h w', repeat=3)
+#         image1, image2 = padder.pad(image1, image2)
+#         _, result = op_model(image1, image2, iters=10)
+#         pred_op_list.append(result)
+
+#         image1, image2 = true[:, i, :, :, :], true[:, i, :, :, :]
+#         if channel == 1:
+#             image1 = repeat(image1, 'b c h w -> b (repeat c) h w', repeat=3)
+#             image2 = repeat(image2, 'b c h w -> b (repeat c) h w', repeat=3)
+#         image1, image2 = padder.pad(image1, image2)
+#         _, result = op_model(image1, image2, iters=10)
+#         true_op_list.append(result)
+
+#     pred_op_tensor = torch.stack(pred_op_list).permute(1, 0, 2, 3, 4)
+#     true_op_tensor = torch.stack(true_op_list).permute(1, 0, 2, 3, 4)
+
+#     return F.mse_loss(pred_op_tensor, true_op_tensor)
 
 
 # ----------------------------------------------------------------------------- Laplacian Loss

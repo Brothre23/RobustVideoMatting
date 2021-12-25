@@ -33,48 +33,48 @@ Background Video Train/Valid
 DATA_PATHS = {
     'videomatte': {
         'train':
-        '/media/1T-HDD/RobustVideoMatting/VideoMatte240K_JPEG_SD/train',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/VideoMatte240K_JPEG_SD/train',
         'valid':
-        '/media/1T-HDD/RobustVideoMatting/VideoMatte240K_JPEG_SD/valid',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/VideoMatte240K_JPEG_SD/valid',
     },
     'imagematte': {
         'train':
-        '/media/1T-HDD/RobustVideoMatting/ImageMatte/train',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/ImageMatte/train',
         'valid':
-        '/media/1T-HDD/RobustVideoMatting/ImageMatte/valid',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/ImageMatte/valid',
     },
     'background_images': {
         'train':
-        '/media/1T-HDD/RobustVideoMatting/Background_Images/train',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/Background_Images/train',
         'valid':
-        '/media/1T-HDD/RobustVideoMatting/Background_Images/valid',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/Background_Images/valid',
     },
     'background_videos': {
         'train':
-        '/media/1T-HDD/RobustVideoMatting/Background_Videos/train',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/Background_Videos/train',
         'valid':
-        '/media/1T-HDD/RobustVideoMatting/Background_Videos/valid',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/Background_Videos/valid',
     },
-    'natural_images': '/media/1T-HDD/RobustVideoMatting/Real_Human/image_allframe'
+    'natural_images': '/media/brothre23/1T-HDD/RobustVideoMatting/Real_Human/image_allframe'
     ,
     'coco_panoptic': {
         'imgdir':
-        '/media/1T-HDD/RobustVideoMatting/coco/train2017/',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/coco/train2017/',
         'anndir':
-        '/media/1T-HDD/RobustVideoMatting/coco/panoptic_train2017/',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/coco/panoptic_train2017/',
         'annfile':
-        '/media/1T-HDD/RobustVideoMatting/coco/annotations/panoptic_train2017.json',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/coco/annotations/panoptic_train2017.json',
     },
     'spd': {
         'imgdir':
-        '/media/1T-HDD/RobustVideoMatting/SuperviselyPersonDataset/img',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/SuperviselyPersonDataset/img',
         'segdir':
-        '/media/1T-HDD/RobustVideoMatting/SuperviselyPersonDataset/seg',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/SuperviselyPersonDataset/seg',
     },
     'youtubevis': {
         'videodir':
-        '/media/1T-HDD/RobustVideoMatting/YouTubeVIS/train/JPEGImages',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/YouTubeVIS/train/JPEGImages',
         'annfile':
-        '/media/1T-HDD/RobustVideoMatting/YouTubeVIS/train/instances.json',
+        '/media/brothre23/1T-HDD/RobustVideoMatting/YouTubeVIS/train/instances.json',
     }
 }
