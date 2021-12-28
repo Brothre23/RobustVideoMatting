@@ -125,7 +125,7 @@ class UpsamplingBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ELU(True),
+            nn.ReLU(True),
         )
         self.attention = SelfAttention(out_channels)
         # self.deform = DeformableConvolution(out_channels)
@@ -172,10 +172,10 @@ class OutputBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ELU(True),
+            nn.ReLU(True),
             nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ELU(True),
+            nn.ReLU(True),
         )
         
     def forward_single_frame(self, x, s):

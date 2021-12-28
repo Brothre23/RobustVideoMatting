@@ -142,7 +142,8 @@ class Trainer:
     def parse_args(self):
         parser = argparse.ArgumentParser()
         # Model
-        parser.add_argument('--model-variant', type=str, required=True, choices=['mobilenetv3', 'resnet50'])
+        parser.add_argument('--model-variant', type=str, required=True, choices=['mobilenetv3', 'shufflenetv2', 'resnet50'])
+        parser.add_argument('--refiner', type=str, default='fast_guided_filter')
         # Matting dataset
         parser.add_argument('--dataset', type=str, required=True, choices=['videomatte', 'imagematte'])
         # Learning rate

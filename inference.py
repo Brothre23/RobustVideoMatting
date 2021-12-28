@@ -60,7 +60,6 @@ def convert_video(model,
     assert output_type in ['video', 'png_sequence'], 'Only support "video" and "png_sequence" output modes.'
     assert seq_chunk >= 1, 'Sequence chunk must be >= 1'
     assert num_workers >= 0, 'Number of workers must be >= 0'
-    assert output_video_mbps == None or output_type == 'video', 'Mbps is not available for png_sequence output.'
     
     # Initialize transform
     if input_resize is not None:
@@ -101,9 +100,9 @@ def convert_video(model,
         if output_composition is not None:
             writer_com = ImageSequenceWriter(output_composition, 'png')
         if output_alpha is not None:
-            writer_pha = VideoWriter(output_alpha, 'png')
+            writer_pha = ImageSequenceWriter(output_alpha, 'png')
         if output_foreground is not None:
-            writer_fgr = VideoWriter(output_foreground, 'png')
+            writer_fgr = ImageSequenceWriter(output_foreground, 'png')
 
     # Inference
     model = model.eval()
