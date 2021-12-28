@@ -105,14 +105,14 @@ class BottleneckBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.channels = channels
-        # self.attention = SelfAttention(channels)
-        self.deform = DeformableConvolution(channels)
+        self.attention = SelfAttention(channels)
+        # self.deform = DeformableConvolution(channels)
 
     def forward(self, x):
-        # x = self.attention(x)
-        with torch.cuda.amp.autocast(enabled=False):
-            x = x.float()
-            x = self.deform(x)
+        x = self.attention(x)
+        # with torch.cuda.amp.autocast(enabled=False):
+            # x = x.float()
+            # x = self.deform(x)
         return x
 
     
@@ -120,8 +120,8 @@ class UpsamplingBlock(nn.Module):
     def __init__(self, in_channels, skip_channels, src_channels, out_channels):
         super().__init__()
         self.out_channels = out_channels
-        # self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-        self.upsample = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=3, stride=2, padding=1)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        # self.upsample = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=3, stride=2, padding=1)
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
@@ -133,7 +133,8 @@ class UpsamplingBlock(nn.Module):
     def forward_single_frame(self, x, f, s):
         size = list(x.size())
         size[2:4] = [value*2 for value in size[2:4]]
-        x = self.upsample(x, output_size = size)
+        # x = self.upsample(x, output_size = size)
+        x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
@@ -146,7 +147,8 @@ class UpsamplingBlock(nn.Module):
         s = s.flatten(0, 1)
         size = list(x.size())
         size[2:4] = [value*2 for value in size[2:4]]
-        x = self.upsample(x, output_size = size)
+        # x = self.upsample(x, output_size = size)
+        x = self.upsample(x)
         x = x[:, :, :H, :W]
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)

@@ -1,34 +1,39 @@
 import torch
 from torch import nn
-from torchvision.models.shufflenetv2 import ShuffleNetV2
+from .MicroNet.model import MicroNet
 from torchvision.transforms.functional import normalize
 
-class ShuffleNetV2Encoder(ShuffleNetV2):
+class MicroNetEncoder(MicroNet):
     def __init__(self, pretrained: bool = False):
-        super().__init__(stages_repeats=[4, 8, 4],
-        stages_out_channels=[24, 48, 96, 192, 1024])
+        super().__init__(input_size=256)
 
         if pretrained:
             import torch
-            self.load_state_dict(torch.hub.load_state_dict_from_url(
-                'https://download.pytorch.org/models/shufflenetv2_x0.5-f707e7126e.pth'))
+            self.load_state_dict(torch.load('model/MicroNet/micronet-m0.pth'))
 
-        del self.maxpool
-        del self.fc
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        del self.classifier
 
     def forward_single_frame(self, x):
         x = normalize(x, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        x = self.upsample(x)
 
-        x = self.conv1(x)
+        x = self.features[0](x)
+        x = self.features[1](x)
         f1 = x
-        x = self.stage2(x)
+
+        x = self.features[2](x)
         f2 = x
-        x = self.stage3(x)
+
+        x = self.features[3](x)
+        x = self.features[4](x)
         f3 = x
-        x = self.stage4(x)
-        x = self.conv5(x)
+
+        x = self.features[5](x)
+        x = self.features[6](x)
+        x = self.features[7](x)
         f4 = x
-        
+
         return [f1, f2, f3, f4]
 
     def forward_time_series(self, x):
