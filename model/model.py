@@ -4,8 +4,7 @@ from torch import nn
 from torch.nn import functional as F
 from typing import Optional, List
 
-from model.shufflenetv2 import ShuffleNetV2Encoder
-
+from .shufflenetv2 import ShuffleNetV2Encoder
 from .mobilenetv3 import MobileNetV3LargeEncoder
 from .resnet import ResNet50Encoder
 from .lraspp import LRASPP
@@ -29,7 +28,7 @@ class MattingNetwork(nn.Module):
         elif variant == 'shufflenetv2':
             self.backbone = ShuffleNetV2Encoder(pretrained_backbone)
             self.aspp = LRASPP(1024, 128)
-            self.decoder = RecurrentDecoder([24, 48, 96, 128], [80, 40, 32, 16])
+            self.decoder = RecurrentDecoder([24, 116, 232, 128], [80, 40, 32, 16])
         else:
             self.backbone = ResNet50Encoder(pretrained_backbone)
             self.aspp = LRASPP(2048, 256)
