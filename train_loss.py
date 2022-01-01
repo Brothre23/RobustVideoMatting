@@ -44,16 +44,20 @@ def consistency_loss(fgr_hat, pha_hat, fgr_bar, pha_bar):
     """
     loss = dict()
     
-    loss['consistency/fgr_l2'] = F.mse_loss(fgr_hat, fgr_bar)
-    loss['consistency/pha_l2'] = F.mse_loss(pha_hat, pha_bar)
+    # loss['consistency/fgr_l2'] = F.mse_loss(fgr_hat, fgr_bar) * 2
+    # loss['consistency/pha_l2'] = F.mse_loss(pha_hat, pha_bar) * 2
 
-    loss['consistency/fgr_coherence'] = F.mse_loss(fgr_hat[:, 1:] - fgr_hat[:, :-1],
-                                            fgr_bar[:, 1:] - fgr_bar[:, :-1]) * 5
-    loss['consistency/pha_coherence'] = F.mse_loss(pha_hat[:, 1:] - pha_hat[:, :-1],
-                                            pha_bar[:, 1:] - pha_bar[:, :-1]) * 5
+    # loss['consistency/fgr_coherence'] = F.mse_loss(fgr_hat[:, 1:] - fgr_hat[:, :-1],
+    #                                         fgr_bar[:, 1:] - fgr_bar[:, :-1]) * 10
+    # loss['consistency/pha_coherence'] = F.mse_loss(pha_hat[:, 1:] - pha_hat[:, :-1],
+    #                                         pha_bar[:, 1:] - pha_bar[:, :-1]) * 10
 
-    loss['consistency/total'] = loss['consistency/fgr_l2'] + loss['consistency/pha_l2'] + \
-                                loss['consistency/fgr_coherence'] + loss['consistency/pha_coherence']
+    # loss['consistency/total'] = loss['consistency/fgr_l2'] + loss['consistency/pha_l2'] + \
+    #                             loss['consistency/fgr_coherence'] + loss['consistency/pha_coherence']
+    loss['consistency/fgr'] = F.mse_loss(fgr_hat, fgr_bar) * 5
+    loss['consistency/pha'] = F.mse_loss(pha_hat, pha_bar) * 5
+
+    loss['consistency/total'] = loss['consistency/fgr'] + loss['consistency/pha']
 
     return loss
 

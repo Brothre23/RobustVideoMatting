@@ -111,8 +111,8 @@ class BottleneckBlock(nn.Module):
     def forward(self, x):
         x = self.attention(x)
         # with torch.cuda.amp.autocast(enabled=False):
-            # x = x.float()
-            # x = self.deform(x)
+        #     x = x.float()
+        #     x = self.deform(x)
         return x
 
     
