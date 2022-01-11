@@ -355,7 +355,7 @@ class Trainer:
         
     def init_model(self):
         self.log('Initializing model')
-        self.model = MattingNetwork(self.args.model_variant, pretrained_backbone=True).to(self.rank)
+        self.model = MattingNetwork(self.args.model_variant, self.args.refiner, pretrained_backbone=True).to(self.rank)
         self.optimizer = Adam([
             {'params': self.model.backbone.parameters(), 'lr': self.args.learning_rate_backbone},
             {'params': self.model.aspp.parameters(), 'lr': self.args.learning_rate_aspp},
