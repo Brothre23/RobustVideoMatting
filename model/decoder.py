@@ -131,9 +131,6 @@ class UpsamplingBlock(nn.Module):
         # self.deform = DeformableConvolution(out_channels)
 
     def forward_single_frame(self, x, f, s):
-        size = list(x.size())
-        size[2:4] = [value*2 for value in size[2:4]]
-        # x = self.upsample(x, output_size = size)
         x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
         x = torch.cat([x, f, s], dim=1)
@@ -146,8 +143,6 @@ class UpsamplingBlock(nn.Module):
         f = f.flatten(0, 1)
         s = s.flatten(0, 1)
         size = list(x.size())
-        size[2:4] = [value*2 for value in size[2:4]]
-        # x = self.upsample(x, output_size = size)
         x = self.upsample(x)
         x = x[:, :, :H, :W]
         x = torch.cat([x, f, s], dim=1)

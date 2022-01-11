@@ -77,53 +77,32 @@ python train.py \
 
 
 import argparse
-import torch
-import random
 import os
-from torch import nn
+import random
+
+import torch
 from torch import distributed as dist
 from torch import multiprocessing as mp
-from torch import optim
+from torch import nn, optim
+from torch.cuda.amp import GradScaler, autocast
 from torch.nn import functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.optim import Adam
-from torch.optim import lr_scheduler
-from torch.cuda.amp import autocast, GradScaler
-from torch.utils.data import DataLoader, ConcatDataset
+from torch.optim import Adam, lr_scheduler
+from torch.utils.data import ConcatDataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.utils import make_grid
 from torchvision.transforms.functional import center_crop
+from torchvision.utils import make_grid
 from tqdm import tqdm
 
-from dataset.videomatte import (
-    VideoMatteDataset,
-    VideoMatteTrainAugmentation,
-    VideoMatteValidAugmentation,
-)
-from dataset.imagematte import (
-    ImageMatteDataset,
-    ImageMatteAugmentation
-)
-from dataset.coco import (
-    CocoPanopticDataset,
-    CocoPanopticTrainAugmentation,
-)
-from dataset.spd import (
-    SuperviselyPersonDataset
-)
-from dataset.youtubevis import (
-    YouTubeVISDataset,
-    YouTubeVISAugmentation
-)
-from dataset.natural import (
-    NaturalImageDataset,
-    NaturalImageAugmentation
-)
-from dataset.augmentation import (
-    TrainFrameSampler,
-    ValidFrameSampler
-)
+from dataset.augmentation import TrainFrameSampler, ValidFrameSampler
+from dataset.coco import CocoPanopticDataset, CocoPanopticTrainAugmentation
+from dataset.imagematte import ImageMatteAugmentation, ImageMatteDataset
+from dataset.natural import NaturalImageAugmentation, NaturalImageDataset
+from dataset.spd import SuperviselyPersonDataset
+from dataset.videomatte import (VideoMatteDataset, VideoMatteTrainAugmentation,
+                                VideoMatteValidAugmentation)
+from dataset.youtubevis import YouTubeVISAugmentation, YouTubeVISDataset
 from model import MattingNetwork
 from train_config import DATA_PATHS
 from train_loss import consistency_loss, matting_loss, segmentation_loss
@@ -385,14 +364,14 @@ class Trainer:
             {'params': self.model.project_seg.parameters(), 'lr': self.args.learning_rate_decoder},
             {'params': self.model.refiner.parameters(), 'lr': self.args.learning_rate_refiner},
         ])
-        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizer, step_size=2, gamma=0.9)
+        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizer, step_size=2, gamma=0.8)
         
         if self.args.checkpoint:
             self.log(f'Restoring from checkpoint: {self.args.checkpoint}')
             checkpoint = torch.load(self.args.checkpoint, map_location=f'cuda:{self.rank}')
             self.log(self.model.load_state_dict(checkpoint['model']))
-            self.log(self.optimizer.load_state_dict(checkpoint['optimizer']))
-            self.log(self.scheduler.load_state_dict(checkpoint['scheduler']))
+            # self.log(self.optimizer.load_state_dict(checkpoint['optimizer']))
+            # self.log(self.scheduler.load_state_dict(checkpoint['scheduler']))
             
         self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
         self.model_ddp = DDP(self.model, device_ids=[self.rank], broadcast_buffers=False, find_unused_parameters=True)
@@ -462,7 +441,7 @@ class Trainer:
                     
                 self.step += 1
 
-            self.scheduler.step()
+            # self.scheduler.step()
                 
     def train_mat_composite(self, input, downsample_ratio, tag, two_pass, epoch):
         true_fgr = input[0].to(self.rank, non_blocking=True)
