@@ -6,12 +6,12 @@ from torchvision.transforms.functional import normalize
 class ShuffleNetV2Encoder(ShuffleNetV2):
     def __init__(self, pretrained: bool = False):
         super().__init__(stages_repeats=[4, 8, 4],
-        stages_out_channels=[24, 48, 96, 192, 1024])
+        stages_out_channels=[24, 116, 232, 464, 1024])
 
         if pretrained:
             import torch
             self.load_state_dict(torch.hub.load_state_dict_from_url(
-                'https://download.pytorch.org/models/shufflenetv2_x0.5-f707e7126e.pth'))
+                'https://download.pytorch.org/models/shufflenetv2_x1-5666bf0f80.pth'))
 
         del self.maxpool
         del self.fc

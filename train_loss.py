@@ -15,21 +15,21 @@ def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
     """
     loss = dict()
     # alpha losses
-    loss[f'{tag}/pha_l2'] = F.mse_loss(pred_pha, true_pha)
+    loss[f'{tag}/pha_l1'] = F.l1_loss(pred_pha, true_pha)
     loss[f'{tag}/pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
-    loss[f'{tag}/pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1], 
+    loss[f'{tag}/pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
                                               true_pha[:, 1:] - true_pha[:, :-1]) * 5
+    loss[f'{tag}/pha_sobel'] = sobel_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1)) * 5
     # foreground losses
     true_msk = true_pha.gt(0)
     pred_fgr = pred_fgr * true_msk
     true_fgr = true_fgr * true_msk
-    loss[f'{tag}/fgr_l2'] = F.mse_loss(pred_fgr, true_fgr)
-    loss[f'{tag}/fgr_laplacian'] = laplacian_loss(pred_fgr.flatten(0, 1), true_fgr.flatten(0, 1))
+    loss[f'{tag}/fgr_l1'] = F.l1_loss(pred_fgr, true_fgr)
     loss[f'{tag}/fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
-                                       true_fgr[:, 1:] - true_fgr[:, :-1]) * 5
+                                              true_fgr[:, 1:] - true_fgr[:, :-1]) * 5
     # Total
-    loss[f'{tag}/total'] = loss[f'{tag}/pha_l2'] + loss[f'{tag}/pha_coherence'] + loss[f'{tag}/pha_laplacian'] \
-                         + loss[f'{tag}/fgr_l2'] + loss[f'{tag}/fgr_coherence'] + loss[f'{tag}/fgr_laplacian']
+    loss[f'{tag}/total'] = loss[f'{tag}/pha_l1'] + loss[f'{tag}/pha_coherence'] + loss[f'{tag}/pha_laplacian'] \
+                         + loss[f'{tag}/pha_sobel'] + loss[f'{tag}/fgr_l1'] + loss[f'{tag}/fgr_coherence']
 
     return loss
 
@@ -43,7 +43,7 @@ def consistency_loss(fgr_hat, pha_hat, fgr_bar, pha_bar):
         pha_bar: Shape(B, T, 1, H, W)
     """
     loss = dict()
-    
+
     # loss['consistency/fgr_l2'] = F.mse_loss(fgr_hat, fgr_bar) * 2
     # loss['consistency/pha_l2'] = F.mse_loss(pha_hat, pha_bar) * 2
 
@@ -100,6 +100,32 @@ def segmentation_loss(pred_seg, true_seg):
 #     return F.mse_loss(pred_op_tensor, true_op_tensor)
 
 
+def sobel_loss(pred, true):
+    kernel_v = torch.tensor(
+        [[0, -1, 0],
+         [0, 0, 0],
+         [0, 1, 0]],
+        device=pred.device,
+        dtype=pred.dtype)
+    kernel_h = torch.tensor(
+        [[0, 0, 0],
+         [-1, 0, 1],
+         [0, 0, 0]],
+        device=pred.device,
+        dtype=pred.dtype)
+    kernel_v = kernel_v[None, None, :, :]
+    kernel_h = kernel_h[None, None, :, :]
+    
+    pred_v = F.conv2d(pred, kernel_v, padding=1)
+    pred_h = F.conv2d(pred, kernel_h, padding=1)
+    pred = torch.sqrt(torch.pow(pred_v, 2) + torch.pow(pred_h, 2) + 1e-6)
+
+    true_v = F.conv2d(true, kernel_v, padding=1)
+    true_h = F.conv2d(true, kernel_h, padding=1)
+    true = torch.sqrt(torch.pow(true_v, 2) + torch.pow(true_h, 2) + 1e-6)
+
+    return F.l1_loss(pred, true)
+
 # ----------------------------------------------------------------------------- Laplacian Loss
 
 
@@ -139,11 +165,11 @@ def gauss_kernel(device='cpu', dtype=torch.float32):
 
 
 def gauss_convolution(img, kernel):
-    B, C, H, W = img.shape
-    img = img.reshape(B * C, 1, H, W)
+    # B, C, H, W = img.shape
+    # img = img.reshape(B * C, 1, H, W)
     img = F.pad(img, (2, 2, 2, 2), mode='reflect')
     img = F.conv2d(img, kernel)
-    img = img.reshape(B, C, H, W)
+    # img = img.reshape(B, C, H, W)
     return img
 
 

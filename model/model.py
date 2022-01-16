@@ -29,7 +29,7 @@ class MattingNetwork(nn.Module):
         elif variant == 'shufflenetv2':
             self.backbone = ShuffleNetV2Encoder(pretrained_backbone)
             self.aspp = LRASPP(1024, 128)
-            self.decoder = RecurrentDecoder([24, 48, 96, 128], [80, 40, 32, 16])
+            self.decoder = RecurrentDecoder([24, 116, 232, 128], [80, 40, 32, 16])
         elif variant == 'micronet':
             self.backbone = MicroNetEncoder(pretrained_backbone)
             self.aspp = LRASPP(384, 128)
