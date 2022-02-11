@@ -9,7 +9,7 @@ from .mobilenetv3 import MobileNetV3LargeEncoder
 from .micronet import MicroNetEncoder
 from .resnet import ResNet50Encoder
 from .lraspp import LRASPP
-from .decoder import RecurrentDecoder, Projection
+from .decoder import RecurrentDecoder, SEBlock, Projection
 from .fast_guided_filter import FastGuidedFilterRefiner
 from .deep_guided_filter import DeepGuidedFilterRefiner
 
@@ -24,21 +24,25 @@ class MattingNetwork(nn.Module):
         
         if variant == 'mobilenetv3':
             self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
+            self.se = nn.ModuleList([SEBlock(16), SEBlock(24), SEBlock(40), SEBlock(960)]) 
             self.aspp = LRASPP(960, 128)
             self.decoder = RecurrentDecoder([16, 24, 40, 128], [80, 40, 32, 16])
         elif variant == 'shufflenetv2':
             self.backbone = ShuffleNetV2Encoder(pretrained_backbone)
+            self.se = nn.ModuleList([SEBlock(24), SEBlock(116), SEBlock(232), SEBlock(1024)]) 
             self.aspp = LRASPP(1024, 128)
             self.decoder = RecurrentDecoder([24, 116, 232, 128], [80, 40, 32, 16])
         elif variant == 'micronet':
             self.backbone = MicroNetEncoder(pretrained_backbone)
+            self.se = nn.ModuleList([SEBlock(8), SEBlock(12), SEBlock(32), SEBlock(384)]) 
             self.aspp = LRASPP(384, 128)
             self.decoder = RecurrentDecoder([8, 12, 32, 128], [80, 40, 32, 16])
         else:
             self.backbone = ResNet50Encoder(pretrained_backbone)
+            self.se = nn.ModuleList([SEBlock(64), SEBlock(256), SEBlock(512), SEBlock(2048)]) 
             self.aspp = LRASPP(2048, 256)
             self.decoder = RecurrentDecoder([64, 256, 512, 256], [128, 64, 32, 16])
-            
+
         self.project_mat = Projection(16, 4)
         self.project_seg = Projection(16, 1)
 
@@ -58,6 +62,7 @@ class MattingNetwork(nn.Module):
             src_sm = src
         
         f1, f2, f3, f4 = self.backbone(src_sm)
+        f1, f2, f3, f4 = self.se[0](f1), self.se[1](f2), self.se[2](f3), self.se[3](f4)
         f4 = self.aspp(f4)
         hid = self.decoder(src_sm, f1, f2, f3, f4)
         

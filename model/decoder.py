@@ -33,30 +33,70 @@ class RecurrentDecoder(nn.Module):
 class SelfAttention(nn.Module):
     def __init__(self, channels):
         super().__init__()
-        self.conv_q = nn.Conv3d(channels, channels // 8, kernel_size=(3, 1, 1), padding=(1, 0, 0))
-        self.conv_k = nn.Conv3d(channels, channels // 8, kernel_size=(3, 1, 1), padding=(1, 0, 0))
+        self.spatial_conv_q = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
+        self.spatial_conv_k = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
+        self.temporal_conv_q = nn.Conv3d(channels,
+                                        channels // 8,
+                                        kernel_size=(3, 1, 1),
+                                        padding=(1, 0, 0))
+        self.temporal_conv_k = nn.Conv3d(channels,
+                                        channels // 8,
+                                        kernel_size=(3, 1, 1),
+                                        padding=(1, 0, 0))
         self.conv_v = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
         self.softmax = nn.Softmax(2)
-        self.gamma = nn.Parameter(torch.zeros(1))
-
 
     def forward(self, x):
         b, t, c, h, w = x.size()
+
         x = torch.permute(x, (0, 2, 1, 3, 4))
-        
-        x_q = self.conv_q(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
-        x_k = self.conv_k(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
-        x_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
 
-        x_k = torch.transpose(x_k, dim0=1, dim1=2)
-        energy = torch.bmm(x_q, x_k)
-        heat = self.softmax(energy)
+        x_temporal_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+        x_spatial_q = self.spatial_conv_q(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
+        x_spatial_k = self.spatial_conv_k(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
+        x_spatial_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
 
-        out = torch.bmm(heat, x_v)
+        position_heat = torch.matmul(torch.transpose(x_spatial_q, dim0=2, dim1=3), x_spatial_k)
+        position_heat = self.softmax(position_heat)
+        channel_heat = torch.matmul(x_spatial_q, torch.transpose(x_spatial_k, dim0=2, dim1=3))
+        channel_heat = self.softmax(channel_heat)
+        position_out = torch.matmul(position_heat, torch.transpose(x_spatial_v, dim0=2, dim1=3))
+        channel_out = torch.matmul(channel_heat, x_spatial_v)
+
+        # position_out: b * t * hw * c, channel_out: b, t, c, hw
+        x = position_out.permute(0, 3, 1, 2).view(b, c, t, h, w) + channel_out.permute(0, 2, 1, 3).view(b, c, t, h, w)
+
+        x_temporal_q = self.temporal_conv_q(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+        x_temporal_k = self.temporal_conv_k(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+
+        heat = torch.matmul(x_temporal_q, torch.transpose(x_temporal_k, dim0=1, dim1=2))
+        heat = self.softmax(heat)
+        out = torch.matmul(heat, x_temporal_v)
         out = out.view(b, t, c, h, w)
-        out = self.gamma * out + x.permute(0, 2, 1, 3, 4)
 
         return out
+
+
+class SEBlock(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, t, c, _, _ = x.size()
+        y_list = []
+        for i in range(t):
+            y = self.avg_pool(x[:, i, :, :, :]).view(b, c)
+            y = self.fc(y).view(b, c, 1, 1)
+            y_list.append(y)
+        y_full = torch.stack(y_list, 1)
+        return x * y_full.expand_as(x)
 
 
 class DeformableConvolution(nn.Module):
@@ -121,14 +161,13 @@ class UpsamplingBlock(nn.Module):
         super().__init__()
         self.out_channels = out_channels
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-        # self.upsample = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=3, stride=2, padding=1)
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(True),
         )
-        self.attention = SelfAttention(out_channels)
-        # self.deform = DeformableConvolution(out_channels)
+        # self.attention = SelfAttention(out_channels)
+        self.deform = DeformableConvolution(out_channels)
 
     def forward_single_frame(self, x, f, s):
         x = self.upsample(x)
@@ -142,16 +181,15 @@ class UpsamplingBlock(nn.Module):
         x = x.flatten(0, 1)
         f = f.flatten(0, 1)
         s = s.flatten(0, 1)
-        size = list(x.size())
         x = self.upsample(x)
         x = x[:, :, :H, :W]
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
-        x = self.attention(x)
-        # with torch.cuda.amp.autocast(enabled=False):
-        #     x = x.float()
-        #     x = self.deform(x)
+        # x = self.attention(x)
+        with torch.cuda.amp.autocast(enabled=False):
+            x = x.float()
+            x = self.deform(x)
         return x
 
 

@@ -358,13 +358,14 @@ class Trainer:
         self.model = MattingNetwork(self.args.model_variant, self.args.refiner, pretrained_backbone=True).to(self.rank)
         self.optimizer = Adam([
             {'params': self.model.backbone.parameters(), 'lr': self.args.learning_rate_backbone},
+            {'params': self.model.se.parameters(), 'lr': self.args.learning_rate_backbone},
             {'params': self.model.aspp.parameters(), 'lr': self.args.learning_rate_aspp},
             {'params': self.model.decoder.parameters(), 'lr': self.args.learning_rate_decoder},
             {'params': self.model.project_mat.parameters(), 'lr': self.args.learning_rate_decoder},
             {'params': self.model.project_seg.parameters(), 'lr': self.args.learning_rate_decoder},
             {'params': self.model.refiner.parameters(), 'lr': self.args.learning_rate_refiner},
         ])
-        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizer, step_size=2, gamma=0.8)
+        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizer, step_size=2, gamma=0.95)
         
         if self.args.checkpoint:
             self.log(f'Restoring from checkpoint: {self.args.checkpoint}')
@@ -413,12 +414,6 @@ class Trainer:
                         self.train_seg(true_img.unsqueeze(1), true_seg.unsqueeze(1), log_label='seg/image')
                 # two pass (composite or natural)
                 else:
-                    # # Low resolution pass
-                    # self.train_mat_composite(true_fgr, true_pha, true_bgr_0, true_bgr_1, downsample_ratio=1, tag='lr', two_pass=True)
-                    # # High resolution pass
-                    # if self.args.train_hr:
-                    #     true_fgr, true_pha, true_bgr_0, true_bgr_1 = self.load_next_mat_hr_sample()
-                    #     self.train_mat_composite(true_fgr, true_pha, true_bgr_0, true_bgr_1, downsample_ratio=self.args.downsample_ratio, tag='hr', two_pass=True)
                     if (self.step + 1) % 4 == 0:
                         # Low resoulution pass
                         input = self.load_next_natural_image_lr_sample()
@@ -441,7 +436,7 @@ class Trainer:
                     
                 self.step += 1
 
-            # self.scheduler.step()
+            self.scheduler.step()
                 
     def train_mat_composite(self, input, downsample_ratio, tag, two_pass, epoch):
         true_fgr = input[0].to(self.rank, non_blocking=True)

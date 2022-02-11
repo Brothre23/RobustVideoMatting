@@ -2,7 +2,6 @@ checkpoint/
 inference/
 log/
 *.pyc
-model/RAFT
 model/D3D/build
 model/D3D/D3D.egg-info
 model/D3D/dist
