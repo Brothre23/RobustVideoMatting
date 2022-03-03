@@ -31,20 +31,17 @@ class RecurrentDecoder(nn.Module):
 
 
 class SelfAttention(nn.Module):
-    def __init__(self, channels):
+    def __init__(self, channels, spatial):
         super().__init__()
         self.spatial_conv_q = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
         self.spatial_conv_k = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
-        self.temporal_conv_q = nn.Conv3d(channels,
-                                        channels // 8,
-                                        kernel_size=(3, 1, 1),
-                                        padding=(1, 0, 0))
-        self.temporal_conv_k = nn.Conv3d(channels,
+        self.temporal_conv = nn.Conv3d(channels,
                                         channels // 8,
                                         kernel_size=(3, 1, 1),
                                         padding=(1, 0, 0))
         self.conv_v = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
         self.softmax = nn.Softmax(2)
+        self.spatial = spatial
 
     def forward(self, x):
         b, t, c, h, w = x.size()
@@ -52,22 +49,24 @@ class SelfAttention(nn.Module):
         x = torch.permute(x, (0, 2, 1, 3, 4))
 
         x_temporal_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
-        x_spatial_q = self.spatial_conv_q(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
-        x_spatial_k = self.spatial_conv_k(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
-        x_spatial_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
 
-        position_heat = torch.matmul(torch.transpose(x_spatial_q, dim0=2, dim1=3), x_spatial_k)
-        position_heat = self.softmax(position_heat)
-        channel_heat = torch.matmul(x_spatial_q, torch.transpose(x_spatial_k, dim0=2, dim1=3))
-        channel_heat = self.softmax(channel_heat)
-        position_out = torch.matmul(position_heat, torch.transpose(x_spatial_v, dim0=2, dim1=3))
-        channel_out = torch.matmul(channel_heat, x_spatial_v)
+        if self.spatial:
+            x_spatial_q = self.spatial_conv_q(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
+            x_spatial_k = self.spatial_conv_k(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
+            x_spatial_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
 
-        # position_out: b * t * hw * c, channel_out: b, t, c, hw
-        x = position_out.permute(0, 3, 1, 2).view(b, c, t, h, w) + channel_out.permute(0, 2, 1, 3).view(b, c, t, h, w)
+            position_heat = torch.matmul(torch.transpose(x_spatial_q, dim0=2, dim1=3), x_spatial_k)
+            position_heat = self.softmax(position_heat)
+            channel_heat = torch.matmul(x_spatial_q, torch.transpose(x_spatial_k, dim0=2, dim1=3))
+            channel_heat = self.softmax(channel_heat)
+            position_out = torch.matmul(position_heat, torch.transpose(x_spatial_v, dim0=2, dim1=3))
+            channel_out = torch.matmul(channel_heat, x_spatial_v)
 
-        x_temporal_q = self.temporal_conv_q(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
-        x_temporal_k = self.temporal_conv_k(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+            # position_out: b * t * hw * c, channel_out: b, t, c, hw
+            x = position_out.permute(0, 3, 1, 2).view(b, c, t, h, w) + channel_out.permute(0, 2, 1, 3).view(b, c, t, h, w)
+
+        x_temporal_q = self.temporal_conv(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+        x_temporal_k = self.temporal_conv(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
 
         heat = torch.matmul(x_temporal_q, torch.transpose(x_temporal_k, dim0=1, dim1=2))
         heat = self.softmax(heat)
@@ -83,7 +82,7 @@ class SEBlock(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
             nn.Linear(channel, channel // reduction, bias=False),
-            nn.ReLU(inplace=True),
+            nn.ELU(inplace=True),
             nn.Linear(channel // reduction, channel, bias=False),
             nn.Sigmoid()
         )
@@ -145,7 +144,7 @@ class BottleneckBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.channels = channels
-        self.attention = SelfAttention(channels)
+        self.attention = SelfAttention(channels, True)
         # self.deform = DeformableConvolution(channels)
 
     def forward(self, x):
@@ -164,10 +163,10 @@ class UpsamplingBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(True),
+            nn.ELU(True),
         )
-        # self.attention = SelfAttention(out_channels)
-        self.deform = DeformableConvolution(out_channels)
+        self.attention = SelfAttention(out_channels, False)
+        # self.deform = DeformableConvolution(out_channels)
 
     def forward_single_frame(self, x, f, s):
         x = self.upsample(x)
@@ -186,10 +185,10 @@ class UpsamplingBlock(nn.Module):
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
-        # x = self.attention(x)
-        with torch.cuda.amp.autocast(enabled=False):
-            x = x.float()
-            x = self.deform(x)
+        x = self.attention(x)
+        # with torch.cuda.amp.autocast(enabled=False):
+        #     x = x.float()
+        #     x = self.deform(x)
         return x
 
 
@@ -207,10 +206,10 @@ class OutputBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(True),
+            nn.ELU(True),
             nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(True),
+            nn.ELU(True),
         )
         
     def forward_single_frame(self, x, s):

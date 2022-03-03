@@ -44,16 +44,6 @@ def consistency_loss(fgr_hat, pha_hat, fgr_bar, pha_bar):
     """
     loss = dict()
 
-    # loss['consistency/fgr_l2'] = F.mse_loss(fgr_hat, fgr_bar) * 2
-    # loss['consistency/pha_l2'] = F.mse_loss(pha_hat, pha_bar) * 2
-
-    # loss['consistency/fgr_coherence'] = F.mse_loss(fgr_hat[:, 1:] - fgr_hat[:, :-1],
-    #                                         fgr_bar[:, 1:] - fgr_bar[:, :-1]) * 10
-    # loss['consistency/pha_coherence'] = F.mse_loss(pha_hat[:, 1:] - pha_hat[:, :-1],
-    #                                         pha_bar[:, 1:] - pha_bar[:, :-1]) * 10
-
-    # loss['consistency/total'] = loss['consistency/fgr_l2'] + loss['consistency/pha_l2'] + \
-    #                             loss['consistency/fgr_coherence'] + loss['consistency/pha_coherence']
     loss['consistency/fgr'] = F.mse_loss(fgr_hat, fgr_bar) * 5
     loss['consistency/pha'] = F.mse_loss(pha_hat, pha_bar) * 5
 
@@ -70,34 +60,6 @@ def segmentation_loss(pred_seg, true_seg):
     """
     return F.binary_cross_entropy_with_logits(pred_seg, true_seg)
 
-
-# def optical_flow_loss(pred, true, size, op_model, channel):
-#     pred_op_list = []
-#     true_op_list = []
-
-#     for i in range(size - 1):
-#         padder = InputPadder(pred[:, i, :, :, :].shape)
-
-#         image1, image2 = pred[:, i, :, :, :], pred[:, i, :, :, :]
-#         if channel == 1:
-#             image1 = repeat(image1, 'b c h w -> b (repeat c) h w', repeat=3)
-#             image2 = repeat(image2, 'b c h w -> b (repeat c) h w', repeat=3)
-#         image1, image2 = padder.pad(image1, image2)
-#         _, result = op_model(image1, image2, iters=10)
-#         pred_op_list.append(result)
-
-#         image1, image2 = true[:, i, :, :, :], true[:, i, :, :, :]
-#         if channel == 1:
-#             image1 = repeat(image1, 'b c h w -> b (repeat c) h w', repeat=3)
-#             image2 = repeat(image2, 'b c h w -> b (repeat c) h w', repeat=3)
-#         image1, image2 = padder.pad(image1, image2)
-#         _, result = op_model(image1, image2, iters=10)
-#         true_op_list.append(result)
-
-#     pred_op_tensor = torch.stack(pred_op_list).permute(1, 0, 2, 3, 4)
-#     true_op_tensor = torch.stack(true_op_list).permute(1, 0, 2, 3, 4)
-
-#     return F.mse_loss(pred_op_tensor, true_op_tensor)
 
 
 def sobel_loss(pred, true):
