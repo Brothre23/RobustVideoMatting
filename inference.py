@@ -174,7 +174,7 @@ if __name__ == '__main__':
     from model import MattingNetwork
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--variant', type=str, required=True, choices=['mobilenetv3', 'shufflenetv2', 'micronet', 'resnet50'])
+    parser.add_argument('--variant', type=str, required=True, choices=['mobilenetv3', 'shufflenetv2', 'micronet', 'resnet50', 'swin_transformer'])
     parser.add_argument('--checkpoint', type=str, required=True)
     parser.add_argument('--device', type=str, required=True)
     parser.add_argument('--input-source', type=str, required=True)

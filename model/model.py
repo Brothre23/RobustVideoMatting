@@ -1,3 +1,4 @@
+from xml.dom.minidom import Element
 import torch
 from torch import Tensor
 from torch import nn
@@ -12,6 +13,7 @@ from .lraspp import LRASPP
 from .decoder import RecurrentDecoder, SEBlock, Projection
 from .fast_guided_filter import FastGuidedFilterRefiner
 from .deep_guided_filter import DeepGuidedFilterRefiner
+from .swin_transformer import SwinTransformerEncoder
 
 class MattingNetwork(nn.Module):
     def __init__(self,
@@ -19,7 +21,7 @@ class MattingNetwork(nn.Module):
                  refiner: str = 'deep_guided_filter',
                  pretrained_backbone: bool = False):
         super().__init__()
-        assert variant in ['mobilenetv3', 'shufflenetv2', 'micronet', 'resnet50']
+        assert variant in ['mobilenetv3', 'shufflenetv2', 'micronet', 'resnet50', 'swin_transformer']
         assert refiner in ['fast_guided_filter', 'deep_guided_filter']
         
         if variant == 'mobilenetv3':
@@ -37,11 +39,16 @@ class MattingNetwork(nn.Module):
             self.se = nn.ModuleList([SEBlock(8), SEBlock(12), SEBlock(32), SEBlock(384)]) 
             self.aspp = LRASPP(384, 128)
             self.decoder = RecurrentDecoder([8, 12, 32, 128], [80, 40, 32, 16])
-        else:
+        elif variant == 'resnet50':
             self.backbone = ResNet50Encoder(pretrained_backbone)
             self.se = nn.ModuleList([SEBlock(64), SEBlock(256), SEBlock(512), SEBlock(2048)]) 
             self.aspp = LRASPP(2048, 256)
             self.decoder = RecurrentDecoder([64, 256, 512, 256], [128, 64, 32, 16])
+        else:
+            self.backbone = SwinTransformerEncoder()
+            self.se = nn.ModuleList([SEBlock(24), SEBlock(48), SEBlock(96), SEBlock(192)]) 
+            self.aspp = LRASPP(192, 128)
+            self.decoder = RecurrentDecoder([24, 48, 96, 128], [80, 40, 32, 16])
 
         self.project_mat = Projection(16, 4)
         self.project_seg = Projection(16, 1)
