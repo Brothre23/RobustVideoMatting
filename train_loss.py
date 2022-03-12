@@ -16,10 +16,12 @@ def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
     loss = dict()
     # alpha losses
     loss[f'{tag}/pha_l1'] = F.l1_loss(pred_pha, true_pha)
-    loss[f'{tag}/pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
     loss[f'{tag}/pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
                                               true_pha[:, 1:] - true_pha[:, :-1]) * 5
+    loss[f'{tag}/pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
     loss[f'{tag}/pha_sobel'] = sobel_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1)) * 5
+    loss[f'{tag}/pha_kld'] = kld_loss(pred_pha, true_pha)
+    # loss[f'{tag}/pha_bce'] = F.binary_cross_entropy_with_logits(pred_pha, true_pha) * 0.1
     # foreground losses
     true_msk = true_pha.gt(0)
     pred_fgr = pred_fgr * true_msk
@@ -28,8 +30,9 @@ def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
     loss[f'{tag}/fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
                                               true_fgr[:, 1:] - true_fgr[:, :-1]) * 5
     # Total
-    loss[f'{tag}/total'] = loss[f'{tag}/pha_l1'] + loss[f'{tag}/pha_coherence'] + loss[f'{tag}/pha_laplacian'] \
-                         + loss[f'{tag}/pha_sobel'] + loss[f'{tag}/fgr_l1'] + loss[f'{tag}/fgr_coherence']
+    loss[f'{tag}/total'] = loss[f'{tag}/pha_l1'] + loss[f'{tag}/pha_coherence'] \
+                         + loss[f'{tag}/pha_laplacian'] + loss[f'{tag}/pha_sobel'] +  loss[f'{tag}/pha_bce'] \
+                         + loss[f'{tag}/fgr_l1'] + loss[f'{tag}/fgr_coherence']
 
     return loss
 
@@ -44,8 +47,8 @@ def consistency_loss(fgr_hat, pha_hat, fgr_bar, pha_bar):
     """
     loss = dict()
 
-    loss['consistency/fgr'] = F.mse_loss(fgr_hat, fgr_bar) * 5
-    loss['consistency/pha'] = F.mse_loss(pha_hat, pha_bar) * 5
+    loss['consistency/fgr'] = F.l1_loss(fgr_hat, fgr_bar) * 5
+    loss['consistency/pha'] = F.l1_loss(pha_hat, pha_bar) * 5
 
     loss['consistency/total'] = loss['consistency/fgr'] + loss['consistency/pha']
 
@@ -87,6 +90,20 @@ def sobel_loss(pred, true):
     true = torch.sqrt(torch.pow(true_v, 2) + torch.pow(true_h, 2) + 1e-6)
 
     return F.l1_loss(pred, true)
+
+
+def kld_loss(q, p):
+    loss = 0.0
+
+    B, T = p.shape[:2]
+    for b in range(B):
+        for t in range(T):
+            q_dist = q[b, t, 0] / torch.sum(q[b, t, 0])
+            p_dist = p[b, t, 0] / torch.sum(p[b, t, 0])
+            loss += F.kl_div((q_dist + 1e-6).log(), p_dist, reduction='mean')
+
+    loss = loss / (B * T) * 1000
+    return loss
 
 # ----------------------------------------------------------------------------- Laplacian Loss
 

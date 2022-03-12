@@ -46,9 +46,9 @@ class MattingNetwork(nn.Module):
             self.decoder = RecurrentDecoder([64, 256, 512, 256], [128, 64, 32, 16])
         else:
             self.backbone = SwinTransformerEncoder()
-            self.se = nn.ModuleList([SEBlock(24), SEBlock(48), SEBlock(96), SEBlock(192)]) 
-            self.aspp = LRASPP(192, 128)
-            self.decoder = RecurrentDecoder([24, 48, 96, 128], [80, 40, 32, 16])
+            self.se = nn.ModuleList([SEBlock(96), SEBlock(192), SEBlock(384), SEBlock(768)]) 
+            self.aspp = LRASPP(768, 128)
+            self.decoder = RecurrentDecoder([96, 192, 384, 128], [80, 40, 32, 16])
 
         self.project_mat = Projection(16, 4)
         self.project_seg = Projection(16, 1)

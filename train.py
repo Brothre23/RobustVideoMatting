@@ -137,7 +137,7 @@ class Trainer:
         parser.add_argument('--seq-length-lr', type=int, required=True)
         parser.add_argument('--seq-length-hr', type=int, default=6)
         parser.add_argument('--downsample-ratio', type=float, default=0.25)
-        parser.add_argument('--batch-size-per-gpu', type=int, default=1)
+        parser.add_argument('--batch-size-per-gpu', type=int, default=2)
         parser.add_argument('--num-workers', type=int, default=2)
         parser.add_argument('--epoch-start', type=int, default=0)
         parser.add_argument('--epoch-end', type=int, default=16)
@@ -365,7 +365,7 @@ class Trainer:
             {'params': self.model.project_seg.parameters(), 'lr': self.args.learning_rate_decoder},
             {'params': self.model.refiner.parameters(), 'lr': self.args.learning_rate_refiner},
         ])
-        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizer, step_size=4, gamma=0.9)
+        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizer, step_size=2, gamma=0.9)
         
         if self.args.checkpoint:
             self.log(f'Restoring from checkpoint: {self.args.checkpoint}')
