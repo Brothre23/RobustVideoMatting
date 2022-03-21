@@ -161,7 +161,7 @@ def auto_downsample_ratio(h, w):
 class Converter:
     def __init__(self, variant: str, checkpoint: str, device: str):
         self.model = MattingNetwork(variant).eval().to(device)
-        self.model.load_state_dict(torch.load(checkpoint, map_location=device)['model'])
+        self.model.load_state_dict(torch.load(checkpoint, map_location=device)['modelG'])
         # self.model = torch.jit.script(self.model)
         # self.model = torch.jit.freeze(self.model)
         self.device = device

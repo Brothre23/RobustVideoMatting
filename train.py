@@ -104,8 +104,9 @@ from dataset.videomatte import (VideoMatteDataset, VideoMatteTrainAugmentation,
                                 VideoMatteValidAugmentation)
 from dataset.youtubevis import YouTubeVISAugmentation, YouTubeVISDataset
 from model import MattingNetwork
+from model.model import NLayerDiscriminator
 from train_config import DATA_PATHS
-from train_loss import consistency_loss, matting_loss, segmentation_loss
+from train_loss import consistency_loss, matting_loss, segmentation_loss, gan_loss
 
 
 class Trainer:
@@ -130,6 +131,7 @@ class Trainer:
         parser.add_argument('--learning-rate-aspp', type=float, required=True)
         parser.add_argument('--learning-rate-decoder', type=float, required=True)
         parser.add_argument('--learning-rate-refiner', type=float, required=True)
+        parser.add_argument('--learning-rate-discriminator', type=float, required=True)
         # Training setting
         parser.add_argument('--train-hr', action='store_true')
         parser.add_argument('--resolution-lr', type=int, default=512)
@@ -355,27 +357,35 @@ class Trainer:
         
     def init_model(self):
         self.log('Initializing model')
-        self.model = MattingNetwork(self.args.model_variant, self.args.refiner, pretrained_backbone=True).to(self.rank)
-        self.optimizer = Adam([
-            {'params': self.model.backbone.parameters(), 'lr': self.args.learning_rate_backbone},
-            {'params': self.model.se.parameters(), 'lr': self.args.learning_rate_backbone},
-            {'params': self.model.aspp.parameters(), 'lr': self.args.learning_rate_aspp},
-            {'params': self.model.decoder.parameters(), 'lr': self.args.learning_rate_decoder},
-            {'params': self.model.project_mat.parameters(), 'lr': self.args.learning_rate_decoder},
-            {'params': self.model.project_seg.parameters(), 'lr': self.args.learning_rate_decoder},
-            {'params': self.model.refiner.parameters(), 'lr': self.args.learning_rate_refiner},
+        self.modelG = MattingNetwork(self.args.model_variant, self.args.refiner, pretrained_backbone=True).to(self.rank)
+        self.modelD = NLayerDiscriminator(input_nc=3).to(self.rank)
+        self.optimizerG = Adam([
+            {'params': self.modelG.backbone.parameters(), 'lr': self.args.learning_rate_backbone},
+            {'params': self.modelG.se.parameters(), 'lr': self.args.learning_rate_backbone},
+            {'params': self.modelG.aspp.parameters(), 'lr': self.args.learning_rate_aspp},
+            {'params': self.modelG.decoder.parameters(), 'lr': self.args.learning_rate_decoder},
+            {'params': self.modelG.project_mat.parameters(), 'lr': self.args.learning_rate_decoder},
+            {'params': self.modelG.project_seg.parameters(), 'lr': self.args.learning_rate_decoder},
+            {'params': self.modelG.refiner.parameters(), 'lr': self.args.learning_rate_refiner}
         ])
-        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizer, step_size=2, gamma=0.9)
+        self.optimizerD = Adam([
+            {'params': self.modelD.parameters(), 'lr': self.args.learning_rate_discriminator}
+        ])
+        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizerG, step_size=2, gamma=0.9)
         
         if self.args.checkpoint:
             self.log(f'Restoring from checkpoint: {self.args.checkpoint}')
             checkpoint = torch.load(self.args.checkpoint, map_location=f'cuda:{self.rank}')
-            self.log(self.model.load_state_dict(checkpoint['model']))
-            self.log(self.optimizer.load_state_dict(checkpoint['optimizer']))
+            self.log(self.modelG.load_state_dict(checkpoint['modelG']))
+            self.log(self.modelD.load_state_dict(checkpoint['modelD']))
+            self.log(self.optimizerG.load_state_dict(checkpoint['optimizerG']))
+            self.log(self.optimizerD.load_state_dict(checkpoint['optimizerD']))
             self.log(self.scheduler.load_state_dict(checkpoint['scheduler']))
             
-        self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
-        self.model_ddp = DDP(self.model, device_ids=[self.rank], broadcast_buffers=False, find_unused_parameters=True)
+        self.modelG = nn.SyncBatchNorm.convert_sync_batchnorm(self.modelG)
+        self.modelD = nn.SyncBatchNorm.convert_sync_batchnorm(self.modelD)
+        self.modelG_ddp = DDP(self.modelG, device_ids=[self.rank], broadcast_buffers=False, find_unused_parameters=True)
+        self.modelD_ddp = DDP(self.modelD, device_ids=[self.rank], broadcast_buffers=False, find_unused_parameters=True)
         
         self.scaler = GradScaler()
         
@@ -442,35 +452,58 @@ class Trainer:
         true_fgr = input[0].to(self.rank, non_blocking=True)
         true_pha = input[1].to(self.rank, non_blocking=True)
         true_bgr_0 = input[2].to(self.rank, non_blocking=True)
-        # true_fgr, true_pha, true_bgr_0 = self.random_crop(true_fgr, true_pha, true_bgr_0)
         src_0 = true_fgr * true_pha + true_bgr_0 * (1 - true_pha)
         
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_fgr_0, pred_pha_0 = self.model_ddp(src_0, downsample_ratio=downsample_ratio)
-            loss = matting_loss(pred_fgr_0, pred_pha_0, true_fgr, true_pha, 'pass0')
+            pred_fgr_0, pred_pha_0 = self.modelG_ddp(src_0, downsample_ratio=downsample_ratio)
+            lossG = matting_loss(pred_fgr_0, pred_pha_0, true_fgr, true_pha, 'pass0')
 
-        if two_pass and epoch >= 2:
             true_bgr_1 = input[3].to(self.rank, non_blocking=True)
-            # pred_fgr_0, pred_pha_0, true_bgr_1 = self.random_crop(pred_fgr_0, pred_pha_0, true_bgr_1)
             src_1 = pred_fgr_0 * pred_pha_0 + true_bgr_1 * (1 - pred_pha_0)
 
+            pred_fake = self.modelD_ddp(src_1)
+            target_real = torch.ones(pred_fake.shape).to(self.rank, non_blocking=True)
+            lossG['GAN/generator'] = gan_loss(pred_fake, target_real)
+
+        if two_pass and epoch >= 2:
             with autocast(enabled=not self.args.disable_mixed_precision):
-                pred_fgr_1, pred_pha_1 = self.model_ddp(src_1, downsample_ratio=downsample_ratio)
-                loss.update(matting_loss(pred_fgr_1, pred_pha_1, true_fgr, true_pha, 'pass1'))
-                loss.update(consistency_loss(pred_fgr_0, pred_pha_0, pred_fgr_1, pred_pha_1))
+                pred_fgr_1, pred_pha_1 = self.modelG_ddp(src_1, downsample_ratio=downsample_ratio)
+                lossG.update(matting_loss(pred_fgr_1, pred_pha_1, true_fgr, true_pha, 'pass1'))
+                lossG.update(consistency_loss(pred_fgr_0, pred_pha_0, pred_fgr_1, pred_pha_1))
 
-            self.scaler.scale(loss['pass0/total'] + loss['pass1/total'] + loss['consistency/total']).backward()
+            self.scaler.scale(lossG['pass0/total'] + lossG['pass1/total'] + lossG['consistency/total'] + lossG['GAN/generator']).backward()
         else:
-            self.scaler.scale(loss['pass0/total']).backward()
+            self.scaler.scale(lossG['pass0/total'] + lossG['GAN/generator']).backward(retain_graph=True)
 
-        self.scaler.step(self.optimizer)
+        self.scaler.step(self.optimizerG)
         self.scaler.update()
-        self.optimizer.zero_grad()
+        self.optimizerG.zero_grad()
+
+        with autocast(enabled=not self.args.disable_mixed_precision):
+            lossD = dict()
+            
+            pred_fake = self.modelD_ddp(src_1.detach())
+            target_fake = torch.zeros(pred_fake.shape).to(self.rank, non_blocking=True)
+            lossD['GAN/discriminator_fake'] = gan_loss(pred_fake, target_fake)
+            
+            pred_real = self.modelD_ddp(src_0)
+            target_real = torch.ones(pred_real.shape).to(self.rank, non_blocking=True)
+            lossD['GAN/discriminator_real'] = gan_loss(pred_real, target_real)
+
+            lossD['GAN/discriminator_total'] = (lossD['GAN/discriminator_fake'] + lossD['GAN/discriminator_real']) * 0.5
+
+        self.scaler.scale(lossD['GAN/discriminator_total']).backward()
         
-        if two_pass:
+        self.scaler.step(self.optimizerD)
+        self.scaler.update()
+        self.optimizerD.zero_grad()
+        
+        if two_pass and epoch >= 2:
             # save at step 1
             if self.rank == 0 and (self.step - 1) % self.args.log_train_loss_interval == 0:
-                for loss_name, loss_value in loss.items():
+                for loss_name, loss_value in lossG.items():
+                    self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
+                for loss_name, loss_value in lossD.items():
                     self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
                 
             if self.rank == 0 and (self.step - 1) % self.args.log_train_images_interval == 0:
@@ -479,17 +512,18 @@ class Trainer:
                 self.writer.add_image(f'train_{tag}_com_true/fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(1)), self.step)
                 self.writer.add_image(f'train_{tag}_com_true/pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(1)), self.step)
                 self.writer.add_image(f'train_{tag}_com_pass0/src', make_grid(src_0.flatten(0, 1), nrow=src_0.size(1)), self.step)
-                if epoch >= 2:
-                    self.writer.add_image(f'train_{tag}_com_pass1/src', make_grid(src_1.flatten(0, 1), nrow=src_1.size(1)), self.step)
-                    self.writer.add_image(f'train_{tag}_com_pass1/pred_fgr', make_grid(pred_fgr_1.flatten(0, 1), nrow=pred_fgr_1.size(1)), self.step)
-                    self.writer.add_image(f'train_{tag}_com_pass1/pred_pha', make_grid(pred_pha_1.flatten(0, 1), nrow=pred_pha_1.size(1)), self.step)
+                self.writer.add_image(f'train_{tag}_com_pass1/src', make_grid(src_1.flatten(0, 1), nrow=src_1.size(1)), self.step)
+                self.writer.add_image(f'train_{tag}_com_pass1/pred_fgr', make_grid(pred_fgr_1.flatten(0, 1), nrow=pred_fgr_1.size(1)), self.step)
+                self.writer.add_image(f'train_{tag}_com_pass1/pred_pha', make_grid(pred_pha_1.flatten(0, 1), nrow=pred_pha_1.size(1)), self.step)
         else:
-            # save at step 0, 2
-            if self.rank == 0 and (self.step % self.args.log_train_loss_interval or (self.step - 2) % self.args.log_train_loss_interval) == 0:
-                for loss_name, loss_value in loss.items():
+            # save at step 0
+            if self.rank == 0 and self.step % self.args.log_train_loss_interval == 0:
+                for loss_name, loss_value in lossG.items():
+                    self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
+                for loss_name, loss_value in lossD.items():
                     self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
                 
-            if self.rank == 0 and (self.step % self.args.log_train_images_interval or (self.step - 2) % self.args.log_train_images_interval) == 0:
+            if self.rank == 0 and self.step % self.args.log_train_images_interval == 0:
                 self.writer.add_image(f'train_{tag}_com_pass0/pred_fgr', make_grid(pred_fgr_0.flatten(0, 1), nrow=pred_fgr_0.size(1)), self.step)
                 self.writer.add_image(f'train_{tag}_com_pass0/pred_pha', make_grid(pred_pha_0.flatten(0, 1), nrow=pred_pha_0.size(1)), self.step)
                 self.writer.add_image(f'train_{tag}_com_true/fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(1)), self.step)
@@ -501,23 +535,48 @@ class Trainer:
         src_0 = input[0].to(self.rank, non_blocking=True)
         
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_fgr_0, pred_pha_0 = self.model_ddp(src_0, downsample_ratio=downsample_ratio)
+            pred_fgr_0, pred_pha_0 = self.modelG_ddp(src_0, downsample_ratio=downsample_ratio)
+            
+            bgr = input[1].to(self.rank, non_blocking=True)
+            src_1 = pred_fgr_0 * pred_pha_0 + bgr * (1 - pred_pha_0)
 
-        bgr = input[1].to(self.rank, non_blocking=True)
-        # pred_fgr_0, pred_pha_0, bgr = self.random_crop(pred_fgr_0, pred_pha_0, bgr)
-        src_1 = pred_fgr_0 * pred_pha_0 + bgr * (1 - pred_pha_0)
+            pred_fake = self.modelD_ddp(src_1)
+            target_real = torch.ones(pred_fake.shape).to(self.rank, non_blocking=True)
+
+            lossG = dict()
+            lossG['GAN/generator'] = gan_loss(pred_fake, target_real)
+
+            pred_fgr_1, pred_pha_1 = self.modelG_ddp(src_1, downsample_ratio=downsample_ratio)
+            lossG.update(consistency_loss(pred_fgr_0, pred_pha_0, pred_fgr_1, pred_pha_1))
+
+        self.scaler.scale(lossG['consistency/total']).backward()
+        self.scaler.step(self.optimizerG)
+        self.scaler.update()
+        self.optimizerG.zero_grad()
 
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_fgr_1, pred_pha_1 = self.model_ddp(src_1, downsample_ratio=downsample_ratio)
-            loss = consistency_loss(pred_fgr_0, pred_pha_0, pred_fgr_1, pred_pha_1)
+            lossD = dict()
+            
+            pred_fake = self.modelD_ddp(src_1.detach())
+            target_fake = torch.zeros(pred_fake.shape).to(self.rank, non_blocking=True)
+            lossD['GAN/discriminator_fake'] = gan_loss(pred_fake, target_fake)
+            
+            pred_real = self.modelD_ddp(src_0)
+            target_real = torch.ones(pred_real.shape).to(self.rank, non_blocking=True)
+            lossD['GAN/discriminator_real'] = gan_loss(pred_real, target_real)
 
-        self.scaler.scale(loss['consistency/total']).backward()
-        self.scaler.step(self.optimizer)
+            lossD['GAN/discriminator_total'] = (lossD['GAN/discriminator_fake'] + lossD['GAN/discriminator_real']) * 0.5
+
+        self.scaler.scale(lossD['GAN/discriminator_total']).backward()
+        self.scaler.step(self.optimizerD)
         self.scaler.update()
-        self.optimizer.zero_grad()
+        self.optimizerD.zero_grad()
+
         # save at step 3
         if self.rank == 0 and (self.step - 3) % self.args.log_train_loss_interval == 0:
-            for loss_name, loss_value in loss.items():
+            for loss_name, loss_value in lossG.items():
+                self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
+            for loss_name, loss_value in lossD.items():
                 self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
             
         if self.rank == 0 and (self.step - 3) % self.args.log_train_images_interval == 0:
@@ -534,13 +593,13 @@ class Trainer:
         true_img, true_seg = self.random_crop(true_img, true_seg)
         
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_seg = self.model_ddp(true_img, segmentation_pass=True)
+            pred_seg = self.modelG_ddp(true_img, segmentation_pass=True)
             loss = segmentation_loss(pred_seg, true_seg)
         
         self.scaler.scale(loss).backward()
-        self.scaler.step(self.optimizer)
+        self.scaler.step(self.optimizerG)
         self.scaler.update()
-        self.optimizer.zero_grad()
+        self.optimizerG.zero_grad()
         
         # save at step 0, 2
         if self.rank == 0 and (self.step % self.args.log_train_loss_interval and (self.step - 2) % self.args.log_train_loss_interval) == 0:
@@ -599,7 +658,7 @@ class Trainer:
     def validate(self):
         if self.rank == 0:
             self.log(f'Validating at the start of epoch: {self.epoch}')
-            self.model_ddp.eval()
+            self.modelG_ddp.eval()
             total_loss, total_count = 0, 0
 
             with torch.no_grad():
@@ -611,7 +670,7 @@ class Trainer:
                         true_src = true_fgr * true_pha + true_bgr * (1 - true_pha)
                         
                         batch_size = true_src.size(0)
-                        pred_fgr, pred_pha = self.model(true_src)[:2]
+                        pred_fgr, pred_pha = self.modelG(true_src)[:2]
                         total_loss += matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, 'pass0')['pass0/total'].item() * batch_size
                         
                         total_count += batch_size
@@ -620,7 +679,7 @@ class Trainer:
             self.log(f'Validation set average loss: {avg_loss}')
             self.writer.add_scalar('valid_loss', avg_loss, self.step)
             
-            self.model_ddp.train()
+            self.modelG_ddp.train()
 
         dist.barrier()
     
@@ -642,8 +701,10 @@ class Trainer:
         if self.rank == 0:
             os.makedirs(self.args.checkpoint_dir, exist_ok=True)
             checkpoint = {
-                'model': self.model.state_dict(),
-                'optimizer': self.optimizer.state_dict(),
+                'modelG': self.modelG.state_dict(),
+                'modelD': self.modelD.state_dict(),
+                'optimizerG': self.optimizerG.state_dict(),
+                'optimizerD': self.optimizerD.state_dict(),
                 'scheduler': self.scheduler.state_dict()
             }
             torch.save(checkpoint, os.path.join(self.args.checkpoint_dir, f'epoch-{self.epoch}.pth'))
