@@ -37,9 +37,9 @@ class MattingNetwork(nn.Module):
             self.decoder = RecurrentDecoder([24, 116, 232, 128], [80, 40, 32, 16])
         elif variant == 'micronet':
             self.backbone = MicroNetEncoder(pretrained_backbone)
-            self.se = nn.ModuleList([SEBlock(8), SEBlock(12), SEBlock(32), SEBlock(384)]) 
-            self.aspp = LRASPP(384, 128)
-            self.decoder = RecurrentDecoder([8, 12, 32, 128], [80, 40, 32, 16])
+            self.se = nn.ModuleList([SEBlock(16), SEBlock(24), SEBlock(80), SEBlock(864)]) 
+            self.aspp = LRASPP(864, 128)
+            self.decoder = RecurrentDecoder([16, 24, 80, 128], [80, 40, 32, 16])
         elif variant == 'resnet50':
             self.backbone = ResNet50Encoder(pretrained_backbone)
             self.se = nn.ModuleList([SEBlock(64), SEBlock(256), SEBlock(512), SEBlock(2048)]) 
@@ -61,6 +61,10 @@ class MattingNetwork(nn.Module):
 
     def forward(self,
                 src: Tensor,
+                r1: Optional[Tensor] = None,
+                r2: Optional[Tensor] = None,
+                r3: Optional[Tensor] = None,
+                r4: Optional[Tensor] = None,
                 downsample_ratio: float = 1,
                 segmentation_pass: bool = False):
         
@@ -72,7 +76,7 @@ class MattingNetwork(nn.Module):
         f1, f2, f3, f4 = self.backbone(src_sm)
         f1, f2, f3, f4 = self.se[0](f1), self.se[1](f2), self.se[2](f3), self.se[3](f4)
         f4 = self.aspp(f4)
-        hid = self.decoder(src_sm, f1, f2, f3, f4)
+        hid, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4)
         
         if not segmentation_pass:
             fgr_residual, pha = self.project_mat(hid).split([3, 1], dim=-3)
@@ -81,10 +85,10 @@ class MattingNetwork(nn.Module):
             fgr = fgr_residual + src
             fgr = fgr.clamp(0., 1.)
             pha = pha.clamp(0., 1.)
-            return [fgr, pha]
+            return [fgr, pha, *rec]
         else:
             seg = self.project_seg(hid)
-            return seg
+            return [seg, *rec]
 
 
     def _interpolate(self, x: Tensor, scale_factor: float):

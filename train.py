@@ -139,7 +139,7 @@ class Trainer:
         parser.add_argument('--seq-length-lr', type=int, required=True)
         parser.add_argument('--seq-length-hr', type=int, default=6)
         parser.add_argument('--downsample-ratio', type=float, default=0.25)
-        parser.add_argument('--batch-size-per-gpu', type=int, default=2)
+        parser.add_argument('--batch-size-per-gpu', type=int, default=1)
         parser.add_argument('--num-workers', type=int, default=2)
         parser.add_argument('--epoch-start', type=int, default=0)
         parser.add_argument('--epoch-end', type=int, default=16)
@@ -371,7 +371,7 @@ class Trainer:
         self.optimizerD = Adam([
             {'params': self.modelD.parameters(), 'lr': self.args.learning_rate_discriminator}
         ])
-        self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizerG, step_size=2, gamma=0.9)
+        # self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizerG, step_size=2, gamma=0.9)
         
         if self.args.checkpoint:
             self.log(f'Restoring from checkpoint: {self.args.checkpoint}')
@@ -380,7 +380,7 @@ class Trainer:
             self.log(self.modelD.load_state_dict(checkpoint['modelD']))
             self.log(self.optimizerG.load_state_dict(checkpoint['optimizerG']))
             self.log(self.optimizerD.load_state_dict(checkpoint['optimizerD']))
-            self.log(self.scheduler.load_state_dict(checkpoint['scheduler']))
+            # self.log(self.scheduler.load_state_dict(checkpoint['scheduler']))
             
         self.modelG = nn.SyncBatchNorm.convert_sync_batchnorm(self.modelG)
         self.modelD = nn.SyncBatchNorm.convert_sync_batchnorm(self.modelD)
@@ -427,11 +427,11 @@ class Trainer:
                     if (self.step + 1) % 4 == 0 and epoch >= 2:
                         # Low resoulution pass
                         input = self.load_next_natural_image_lr_sample()
-                        self.train_mat_natural(input=input, downsample_ratio=1, tag='lr', epoch=self.epoch)
+                        self.train_mat_natural(input=input, downsample_ratio=1, tag='lr')
                         # High resolution pass
                         if self.args.train_hr:
                             input = self.load_next_natural_image_hr_sample()
-                            self.train_mat_natural(input=input, downsample_ratio=self.args.downsample_ratio, tag='hr', epoch=self.epoch)
+                            self.train_mat_natural(input=input, downsample_ratio=self.args.downsample_ratio, tag='hr')
                     else:
                         # Low resolution pass
                         input = [true_fgr, true_pha, true_bgr_0, true_bgr_1]
@@ -452,13 +452,14 @@ class Trainer:
         true_fgr = input[0].to(self.rank, non_blocking=True)
         true_pha = input[1].to(self.rank, non_blocking=True)
         true_bgr_0 = input[2].to(self.rank, non_blocking=True)
+        true_bgr_1 = input[3].to(self.rank, non_blocking=True)
+        true_fgr, true_pha, true_bgr_0, true_bgr_1 = self.random_crop(true_fgr, true_pha, true_bgr_0, true_bgr_1)
         src_0 = true_fgr * true_pha + true_bgr_0 * (1 - true_pha)
         
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_fgr_0, pred_pha_0 = self.modelG_ddp(src_0, downsample_ratio=downsample_ratio)
+            pred_fgr_0, pred_pha_0 = self.modelG_ddp(src_0, downsample_ratio=downsample_ratio)[:2]
             lossG = matting_loss(pred_fgr_0, pred_pha_0, true_fgr, true_pha, 'pass0')
 
-            true_bgr_1 = input[3].to(self.rank, non_blocking=True)
             src_1 = pred_fgr_0 * pred_pha_0 + true_bgr_1 * (1 - pred_pha_0)
 
             pred_fake = self.modelD_ddp(src_1)
@@ -467,7 +468,7 @@ class Trainer:
 
         if two_pass and epoch >= 2:
             with autocast(enabled=not self.args.disable_mixed_precision):
-                pred_fgr_1, pred_pha_1 = self.modelG_ddp(src_1, downsample_ratio=downsample_ratio)
+                pred_fgr_1, pred_pha_1 = self.modelG_ddp(src_1, downsample_ratio=downsample_ratio)[:2]
                 lossG.update(matting_loss(pred_fgr_1, pred_pha_1, true_fgr, true_pha, 'pass1'))
                 lossG.update(consistency_loss(pred_fgr_0, pred_pha_0, pred_fgr_1, pred_pha_1))
 
@@ -497,47 +498,34 @@ class Trainer:
         self.scaler.step(self.optimizerD)
         self.scaler.update()
         self.optimizerD.zero_grad()
-        
-        if two_pass and epoch >= 2:
-            # save at step 1
-            if self.rank == 0 and (self.step - 1) % self.args.log_train_loss_interval == 0:
-                for loss_name, loss_value in lossG.items():
-                    self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
-                for loss_name, loss_value in lossD.items():
-                    self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
-                
-            if self.rank == 0 and (self.step - 1) % self.args.log_train_images_interval == 0:
-                self.writer.add_image(f'train_{tag}_com_pass0/pred_fgr', make_grid(pred_fgr_0.flatten(0, 1), nrow=pred_fgr_0.size(1)), self.step)
-                self.writer.add_image(f'train_{tag}_com_pass0/pred_pha', make_grid(pred_pha_0.flatten(0, 1), nrow=pred_pha_0.size(1)), self.step)
-                self.writer.add_image(f'train_{tag}_com_true/fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(1)), self.step)
-                self.writer.add_image(f'train_{tag}_com_true/pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(1)), self.step)
-                self.writer.add_image(f'train_{tag}_com_pass0/src', make_grid(src_0.flatten(0, 1), nrow=src_0.size(1)), self.step)
+
+        # save at step 1
+        if self.rank == 0 and (self.step - 1) % self.args.log_train_loss_interval == 0:
+            for loss_name, loss_value in lossG.items():
+                self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
+            for loss_name, loss_value in lossD.items():
+                self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
+            
+        if self.rank == 0 and (self.step - 1) % self.args.log_train_images_interval == 0:
+            self.writer.add_image(f'train_{tag}_com_pass0/pred_fgr', make_grid(pred_fgr_0.flatten(0, 1), nrow=pred_fgr_0.size(1)), self.step)
+            self.writer.add_image(f'train_{tag}_com_pass0/pred_pha', make_grid(pred_pha_0.flatten(0, 1), nrow=pred_pha_0.size(1)), self.step)
+            self.writer.add_image(f'train_{tag}_com_true/fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(1)), self.step)
+            self.writer.add_image(f'train_{tag}_com_true/pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(1)), self.step)
+            self.writer.add_image(f'train_{tag}_com_pass0/src', make_grid(src_0.flatten(0, 1), nrow=src_0.size(1)), self.step)
+            if epoch >= 2:
                 self.writer.add_image(f'train_{tag}_com_pass1/src', make_grid(src_1.flatten(0, 1), nrow=src_1.size(1)), self.step)
                 self.writer.add_image(f'train_{tag}_com_pass1/pred_fgr', make_grid(pred_fgr_1.flatten(0, 1), nrow=pred_fgr_1.size(1)), self.step)
                 self.writer.add_image(f'train_{tag}_com_pass1/pred_pha', make_grid(pred_pha_1.flatten(0, 1), nrow=pred_pha_1.size(1)), self.step)
-        else:
-            # save at step 0
-            if self.rank == 0 and self.step % self.args.log_train_loss_interval == 0:
-                for loss_name, loss_value in lossG.items():
-                    self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
-                for loss_name, loss_value in lossD.items():
-                    self.writer.add_scalar(f'train_{tag}_{loss_name}', loss_value, self.step)
-                
-            if self.rank == 0 and self.step % self.args.log_train_images_interval == 0:
-                self.writer.add_image(f'train_{tag}_com_pass0/pred_fgr', make_grid(pred_fgr_0.flatten(0, 1), nrow=pred_fgr_0.size(1)), self.step)
-                self.writer.add_image(f'train_{tag}_com_pass0/pred_pha', make_grid(pred_pha_0.flatten(0, 1), nrow=pred_pha_0.size(1)), self.step)
-                self.writer.add_image(f'train_{tag}_com_true/fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(1)), self.step)
-                self.writer.add_image(f'train_{tag}_com_true/pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(1)), self.step)
-                self.writer.add_image(f'train_{tag}_com_pass0/src', make_grid(src_0.flatten(0, 1), nrow=src_0.size(1)), self.step)
 
 
-    def train_mat_natural(self, input, downsample_ratio, tag, epoch):
+    def train_mat_natural(self, input, downsample_ratio, tag):
         src_0 = input[0].to(self.rank, non_blocking=True)
+        bgr = input[1].to(self.rank, non_blocking=True)
+        src_0, bgr = self.random_crop(src_0, bgr)
         
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_fgr_0, pred_pha_0 = self.modelG_ddp(src_0, downsample_ratio=downsample_ratio)
+            pred_fgr_0, pred_pha_0 = self.modelG_ddp(src_0, downsample_ratio=downsample_ratio)[:2]
             
-            bgr = input[1].to(self.rank, non_blocking=True)
             src_1 = pred_fgr_0 * pred_pha_0 + bgr * (1 - pred_pha_0)
 
             pred_fake = self.modelD_ddp(src_1)
@@ -546,7 +534,7 @@ class Trainer:
             lossG = dict()
             lossG['GAN/generator'] = gan_loss(pred_fake, target_real)
 
-            pred_fgr_1, pred_pha_1 = self.modelG_ddp(src_1, downsample_ratio=downsample_ratio)
+            pred_fgr_1, pred_pha_1 = self.modelG_ddp(src_1, downsample_ratio=downsample_ratio)[:2]
             lossG.update(consistency_loss(pred_fgr_0, pred_pha_0, pred_fgr_1, pred_pha_1))
 
         self.scaler.scale(lossG['consistency/total']).backward()
@@ -593,7 +581,7 @@ class Trainer:
         true_img, true_seg = self.random_crop(true_img, true_seg)
         
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_seg = self.modelG_ddp(true_img, segmentation_pass=True)
+            pred_seg = self.modelG_ddp(true_img, segmentation_pass=True)[0]
             loss = segmentation_loss(pred_seg, true_seg)
         
         self.scaler.scale(loss).backward()
@@ -671,6 +659,7 @@ class Trainer:
                         
                         batch_size = true_src.size(0)
                         pred_fgr, pred_pha = self.modelG(true_src)[:2]
+                        # print(pred_pha.shape, true_pha.shape)
                         total_loss += matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, 'pass0')['pass0/total'].item() * batch_size
                         
                         total_count += batch_size
@@ -704,8 +693,8 @@ class Trainer:
                 'modelG': self.modelG.state_dict(),
                 'modelD': self.modelD.state_dict(),
                 'optimizerG': self.optimizerG.state_dict(),
-                'optimizerD': self.optimizerD.state_dict(),
-                'scheduler': self.scheduler.state_dict()
+                'optimizerD': self.optimizerD.state_dict()
+                # 'scheduler': self.scheduler.state_dict()
             }
             torch.save(checkpoint, os.path.join(self.args.checkpoint_dir, f'epoch-{self.epoch}.pth'))
             self.log('Model saved')
