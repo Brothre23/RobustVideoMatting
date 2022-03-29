@@ -5,11 +5,11 @@ from torchvision.transforms.functional import normalize
 
 class MicroNetEncoder(MicroNet):
     def __init__(self, pretrained: bool = False):
-        super().__init__(input_size=256)
+        super().__init__(input_size=384)
 
         if pretrained:
             import torch
-            self.load_state_dict(torch.load('model/MicroNet/micronet-m0.pth'))
+            self.load_state_dict(torch.load('model/MicroNet/micronet-m3.pth'))
 
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         del self.classifier
@@ -23,15 +23,20 @@ class MicroNetEncoder(MicroNet):
         f1 = x
 
         x = self.features[2](x)
+        x = self.features[3](x)
         f2 = x
 
-        x = self.features[3](x)
         x = self.features[4](x)
-        f3 = x
-
         x = self.features[5](x)
         x = self.features[6](x)
         x = self.features[7](x)
+        x = self.features[8](x)
+        f3 = x
+
+        x = self.features[9](x)
+        x = self.features[10](x)
+        x = self.features[11](x)
+        x = self.features[12](x)
         f4 = x
 
         return [f1, f2, f3, f4]

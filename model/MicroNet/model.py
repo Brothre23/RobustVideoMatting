@@ -281,8 +281,8 @@ class DYMicroBlock(nn.Module):
         act_max = 2.0
         act_bias = False
         act_reduction = 8 * ratio
-        init_a = (1.0, 1.0)
-        init_b = (0.0, 0.0)
+        init_a = (1.0, 0.5)
+        init_b = (0.0, 0.5)
         init_ab3 = (1.0, 0.0)
 
         t1 = ch_exp
@@ -410,22 +410,22 @@ class DYMicroBlock(nn.Module):
 ###########################################################################
 
 class MicroNet(nn.Module):
-    def __init__(self, input_size=224, num_classes=1000, teacher=False):
+    def __init__(self, input_size=384, num_classes=1000, teacher=False):
         super(MicroNet, self).__init__()
 
-        mode = 'msnx_dy6_exp4_4M_221'
+        mode = 'msnx_dy12_exp6_20M_020'
         self.cfgs = microcfg.get_micronet_config(mode)
 
         block = eval('DYMicroBlock')
         stem_mode = 'spatialsepsf'
-        stem_ch = 4
+        stem_ch = 12
         stem_dilation = 1
-        stem_groups = (2, 2)
-        out_ch = 640
+        stem_groups = (4, 3)
+        out_ch = 1024
         depthsep = True
         shuffle = True
         pointwise = 'group'
-        dropout_rate = 0.05
+        dropout_rate = 0.1
 
         # act_max = cfg.MODEL.ACTIVATION.ACT_MAX
         # act_bias = cfg.MODEL.ACTIVATION.LINEARSE_BIAS
