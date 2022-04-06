@@ -6,14 +6,14 @@ from typing import Tuple, Optional
 from .D3D.modules.deform_conv import *
 
 class RecurrentDecoder(nn.Module):
-    def __init__(self, feature_channels, decoder_channels):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
         self.avgpool = AvgPool()
-        self.decode4 = BottleneckBlock(feature_channels[3])
-        self.decode3 = UpsamplingBlock(feature_channels[3], feature_channels[2], 3, decoder_channels[0])
-        self.decode2 = UpsamplingBlock(decoder_channels[0], feature_channels[1], 3, decoder_channels[1])
-        self.decode1 = UpsamplingBlock(decoder_channels[1], feature_channels[0], 3, decoder_channels[2])
-        self.decode0 = OutputBlock(decoder_channels[2], 3, decoder_channels[3])
+        self.decode4 = BottleneckBlock(in_channels[3])
+        self.decode3 = UpsamplingBlock(out_channels[0], in_channels[2], 3, out_channels[1])
+        self.decode2 = UpsamplingBlock(out_channels[1], in_channels[1], 3, out_channels[2])
+        self.decode1 = UpsamplingBlock(out_channels[2], in_channels[0], 3, out_channels[3])
+        self.decode0 = OutputBlock(out_channels[3], 3, out_channels[4])
 
     def forward(self,
                 s0: Tensor, f1: Tensor, f2: Tensor, f3: Tensor, f4: Tensor,

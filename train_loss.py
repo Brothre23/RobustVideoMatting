@@ -1,6 +1,6 @@
 import torch
 from torch.nn import functional as F
-from einops import repeat
+import kornia
 
 # --------------------------------------------------------------------------------- Train Loss
 
@@ -19,9 +19,7 @@ def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
     loss[f'{tag}/pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
                                               true_pha[:, 1:] - true_pha[:, :-1]) * 5
     loss[f'{tag}/pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
-    loss[f'{tag}/pha_sobel'] = sobel_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1)) * 5
-    # loss[f'{tag}/pha_kld'] = kld_loss(pred_pha, true_pha)
-    # loss[f'{tag}/pha_bce'] = F.binary_cross_entropy_with_logits(pred_pha, true_pha) * 0.1
+    loss[f'{tag}/pha_sobel'] = F.l1_loss(kornia.sobel(pred_pha.flatten(0, 1)), kornia.sobel(true_pha.flatten(0, 1))) * 5
     # foreground losses
     true_msk = true_pha.gt(0)
     pred_fgr = pred_fgr * true_msk
@@ -67,46 +65,6 @@ def segmentation_loss(pred_seg, true_seg):
 def gan_loss(pred, true):
     return F.mse_loss(pred, true)
 
-
-def sobel_loss(pred, true):
-    kernel_v = torch.tensor(
-        [[0, -1, 0],
-         [0, 0, 0],
-         [0, 1, 0]],
-        device=pred.device,
-        dtype=pred.dtype)
-    kernel_h = torch.tensor(
-        [[0, 0, 0],
-         [-1, 0, 1],
-         [0, 0, 0]],
-        device=pred.device,
-        dtype=pred.dtype)
-    kernel_v = kernel_v[None, None, :, :]
-    kernel_h = kernel_h[None, None, :, :]
-    
-    pred_v = F.conv2d(pred, kernel_v, padding=1)
-    pred_h = F.conv2d(pred, kernel_h, padding=1)
-    pred = torch.sqrt(torch.pow(pred_v, 2) + torch.pow(pred_h, 2) + 1e-6)
-
-    true_v = F.conv2d(true, kernel_v, padding=1)
-    true_h = F.conv2d(true, kernel_h, padding=1)
-    true = torch.sqrt(torch.pow(true_v, 2) + torch.pow(true_h, 2) + 1e-6)
-
-    return F.l1_loss(pred, true)
-
-
-def kld_loss(q, p):
-    loss = 0.0
-
-    B, T = p.shape[:2]
-    for b in range(B):
-        for t in range(T):
-            q_dist = q[b, t, 0] / torch.sum(q[b, t, 0])
-            p_dist = p[b, t, 0] / torch.sum(p[b, t, 0])
-            loss += F.kl_div((q_dist + 1e-6).log(), p_dist, reduction='mean')
-
-    loss = loss / (B * T) * 1000
-    return loss
 
 # ----------------------------------------------------------------------------- Laplacian Loss
 

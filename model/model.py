@@ -14,7 +14,6 @@ from .lraspp import LRASPP
 from .decoder import RecurrentDecoder, SEBlock, Projection
 from .fast_guided_filter import FastGuidedFilterRefiner
 from .deep_guided_filter import DeepGuidedFilterRefiner
-from .swin_transformer import SwinTransformerEncoder
 
 class MattingNetwork(nn.Module):
     def __init__(self,
@@ -29,27 +28,22 @@ class MattingNetwork(nn.Module):
             self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
             self.se = nn.ModuleList([SEBlock(16), SEBlock(24), SEBlock(40), SEBlock(960)]) 
             self.aspp = LRASPP(960, 128)
-            self.decoder = RecurrentDecoder([16, 24, 40, 128], [80, 40, 32, 16])
+            self.decoder = RecurrentDecoder([16, 24, 40, 128], [128, 80, 40, 32, 16])
         elif variant == 'shufflenetv2':
             self.backbone = ShuffleNetV2Encoder(pretrained_backbone)
             self.se = nn.ModuleList([SEBlock(24), SEBlock(116), SEBlock(232), SEBlock(1024)]) 
             self.aspp = LRASPP(1024, 128)
-            self.decoder = RecurrentDecoder([24, 116, 232, 128], [80, 40, 32, 16])
+            self.decoder = RecurrentDecoder([24, 116, 232, 128], [128, 80, 40, 32, 16])
         elif variant == 'micronet':
             self.backbone = MicroNetEncoder(pretrained_backbone)
             self.se = nn.ModuleList([SEBlock(16), SEBlock(24), SEBlock(80), SEBlock(864)]) 
             self.aspp = LRASPP(864, 128)
-            self.decoder = RecurrentDecoder([16, 24, 80, 128], [80, 40, 32, 16])
-        elif variant == 'resnet50':
+            self.decoder = RecurrentDecoder([16, 24, 80, 128], [128, 80, 40, 32, 16])
+        else:
             self.backbone = ResNet50Encoder(pretrained_backbone)
             self.se = nn.ModuleList([SEBlock(64), SEBlock(256), SEBlock(512), SEBlock(2048)]) 
             self.aspp = LRASPP(2048, 256)
-            self.decoder = RecurrentDecoder([64, 256, 512, 256], [128, 64, 32, 16])
-        else:
-            self.backbone = SwinTransformerEncoder()
-            self.se = nn.ModuleList([SEBlock(96), SEBlock(192), SEBlock(384), SEBlock(768)]) 
-            self.aspp = LRASPP(768, 128)
-            self.decoder = RecurrentDecoder([96, 192, 384, 128], [80, 40, 32, 16])
+            self.decoder = RecurrentDecoder([64, 256, 512, 256], [256, 128, 64, 32, 16])
 
         self.project_mat = Projection(16, 4)
         self.project_seg = Projection(16, 1)
