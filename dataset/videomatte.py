@@ -39,18 +39,16 @@ class VideoMatteDataset(Dataset):
     
     def __getitem__(self, idx):
         if random.random() < 0.5:
-            bgr_0 = self._get_random_image_background()
-            bgr_1 = self._get_random_image_background()
+            bgr = self._get_random_image_background()
         else:
-            bgr_0 = self._get_random_video_background()
-            bgr_1 = self._get_random_video_background()
+            bgr = self._get_random_video_background()
         
         fgrs, phas = self._get_videomatte(idx)
         
         if self.transform is not None:
-            return self.transform(fgrs, phas, bgr_0, bgr_1)
+            return self.transform(fgrs, phas, bgr)
         
-        return fgrs, phas, bgr_0, bgr_1
+        return fgrs, phas, bgr
     
     def _get_random_image_background(self):
         with Image.open(os.path.join(self.background_image_dir, random.choice(self.background_image_files))) as bgr:

@@ -5,7 +5,7 @@ import kornia
 # --------------------------------------------------------------------------------- Train Loss
 
 
-def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
+def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha):
     """
     Args:
         pred_fgr: Shape(B, T, 3, H, W)
@@ -15,22 +15,22 @@ def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha, tag):
     """
     loss = dict()
     # alpha losses
-    loss[f'{tag}/pha_l1'] = F.l1_loss(pred_pha, true_pha)
-    loss[f'{tag}/pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
-                                              true_pha[:, 1:] - true_pha[:, :-1]) * 5
-    loss[f'{tag}/pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
-    loss[f'{tag}/pha_sobel'] = F.l1_loss(kornia.sobel(pred_pha.flatten(0, 1)), kornia.sobel(true_pha.flatten(0, 1))) * 5
+    loss['pha_l1'] = F.l1_loss(pred_pha, true_pha)
+    loss['pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
+                                       true_pha[:, 1:] - true_pha[:, :-1]) * 5
+    loss['pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
+    loss['pha_sobel'] = F.l1_loss(kornia.filters.sobel(pred_pha.flatten(0, 1)), kornia.filters.sobel(true_pha.flatten(0, 1))) * 5
     # foreground losses
     true_msk = true_pha.gt(0)
     pred_fgr = pred_fgr * true_msk
     true_fgr = true_fgr * true_msk
-    loss[f'{tag}/fgr_l1'] = F.l1_loss(pred_fgr, true_fgr) * 2
-    loss[f'{tag}/fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
-                                              true_fgr[:, 1:] - true_fgr[:, :-1]) * 10
+    loss['fgr_l1'] = F.l1_loss(pred_fgr, true_fgr) * 2
+    loss['fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
+                                       true_fgr[:, 1:] - true_fgr[:, :-1]) * 10
     # Total
-    loss[f'{tag}/total'] = loss[f'{tag}/pha_l1'] + loss[f'{tag}/pha_coherence'] \
-                         + loss[f'{tag}/pha_laplacian'] + loss[f'{tag}/pha_sobel'] \
-                         + loss[f'{tag}/fgr_l1'] + loss[f'{tag}/fgr_coherence']
+    loss['total'] = loss['pha_l1'] + loss['pha_coherence'] \
+                  + loss['pha_laplacian'] + loss['pha_sobel'] \
+                  + loss['fgr_l1'] + loss['fgr_coherence']
 
     return loss
 
