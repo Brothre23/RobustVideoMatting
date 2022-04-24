@@ -19,36 +19,17 @@ def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha):
     loss['pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
                                        true_pha[:, 1:] - true_pha[:, :-1]) * 5
     loss['pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
-    loss['pha_sobel'] = F.l1_loss(kornia.filters.sobel(pred_pha.flatten(0, 1)), kornia.filters.sobel(true_pha.flatten(0, 1))) * 5
-    # foreground losses
+
     true_msk = true_pha.gt(0)
     pred_fgr = pred_fgr * true_msk
     true_fgr = true_fgr * true_msk
-    loss['fgr_l1'] = F.l1_loss(pred_fgr, true_fgr) * 2
+    loss['fgr_l1'] = F.l1_loss(pred_fgr, true_fgr)
     loss['fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
-                                       true_fgr[:, 1:] - true_fgr[:, :-1]) * 10
-    # Total
+                                       true_fgr[:, 1:] - true_fgr[:, :-1]) * 5
+
     loss['total'] = loss['pha_l1'] + loss['pha_coherence'] \
-                  + loss['pha_laplacian'] + loss['pha_sobel'] \
+                  + loss['pha_laplacian'] \
                   + loss['fgr_l1'] + loss['fgr_coherence']
-
-    return loss
-
-
-def consistency_loss(fgr_hat, pha_hat, fgr_bar, pha_bar):
-    """
-    Args:
-        fgr_hat: Shape(B, T, 3, H, W)
-        pha_hat: Shape(B, T, 1, H, W)
-        fgr_bar: Shape(B, T, 3, H, W)
-        pha_bar: Shape(B, T, 1, H, W)
-    """
-    loss = dict()
-
-    loss['consistency/fgr'] = F.l1_loss(fgr_hat, fgr_bar) * 5
-    loss['consistency/pha'] = F.l1_loss(pha_hat, pha_bar) * 5
-
-    loss['consistency/total'] = loss['consistency/fgr'] + loss['consistency/pha']
 
     return loss
 

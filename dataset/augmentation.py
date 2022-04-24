@@ -32,83 +32,76 @@ class MotionAugmentation:
         self.static_affine = static_affine
         self.aspect_ratio_range = aspect_ratio_range
         
-    def __call__(self, fgrs, phas, bgr_0, bgr_1):
+    def __call__(self, fgrs, phas, bgrs):
         # Foreground affine
         if random.random() < self.prob_fgr_affine:
             fgrs, phas = self._motion_affine(fgrs, phas)
 
         # Background affine
         if random.random() < self.prob_bgr_affine / 2:
-            bgr_0 = self._motion_affine(bgr_0)
-            bgr_1 = self._motion_affine(bgr_1)
+            bgrs = self._motion_affine(bgrs)
         if random.random() < self.prob_bgr_affine / 2:
-            fgrs, phas, bgr_0, bgr_1 = self._motion_affine(fgrs, phas, bgr_0, bgr_1)
+            fgrs, phas, bgrs = self._motion_affine(fgrs, phas, bgrs)
                 
         # Still Affine
         if self.static_affine:
             fgrs, phas = self._static_affine(fgrs, phas, scale_ranges=(0.5, 1))
-            bgr_0, bgr_1 = self._static_affine(bgr_0, bgr_1, scale_ranges=(1, 1.5))
+            bgrs = self._static_affine(bgrs, scale_ranges=(1, 1.5))
         
         # To tensor
         fgrs = torch.stack([F.to_tensor(fgr) for fgr in fgrs])
         phas = torch.stack([F.to_tensor(pha) for pha in phas])
-        bgr_0 = torch.stack([F.to_tensor(bgr) for bgr in bgr_0])
-        bgr_1 = torch.stack([F.to_tensor(bgr) for bgr in bgr_1])
+        bgrs = torch.stack([F.to_tensor(bgr) for bgr in bgrs])
         
         # Resize
         params = transforms.RandomResizedCrop.get_params(fgrs, scale=(1, 1), ratio=self.aspect_ratio_range)
         fgrs = F.resized_crop(fgrs, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
         phas = F.resized_crop(phas, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
-        params = transforms.RandomResizedCrop.get_params(bgr_0, scale=(1, 1), ratio=self.aspect_ratio_range)
-        bgr_0 = F.resized_crop(bgr_0, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
-        params = transforms.RandomResizedCrop.get_params(bgr_1, scale=(1, 1), ratio=self.aspect_ratio_range)
-        bgr_1 = F.resized_crop(bgr_1, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
+        params = transforms.RandomResizedCrop.get_params(bgrs, scale=(1, 1), ratio=self.aspect_ratio_range)
+        bgrs = F.resized_crop(bgrs, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
 
         # Horizontal flip
         if random.random() < self.prob_hflip:
             fgrs = F.hflip(fgrs)
             phas = F.hflip(phas)
         if random.random() < self.prob_hflip:
-            bgr_0 = F.hflip(bgr_0)
-            bgr_1 = F.hflip(bgr_1)
+            bgrs = F.hflip(bgrs)
 
         # Noise
         if random.random() < self.prob_noise:
-            fgrs, bgr_0, bgr_1 = self._motion_noise(fgrs, bgr_0, bgr_1)
+            fgrs, bgrs = self._motion_noise(fgrs, bgrs)
         
         # Color jitter
         if random.random() < self.prob_color_jitter:
             fgrs = self._motion_color_jitter(fgrs)
         if random.random() < self.prob_color_jitter:
-            bgr_0, bgr_1 = self._motion_color_jitter(bgr_0, bgr_1)
+            bgrs = self._motion_color_jitter(bgrs)
             
         # Grayscale
         if random.random() < self.prob_grayscale:
             fgrs = F.rgb_to_grayscale(fgrs, num_output_channels=3).contiguous()
-            bgr_0 = F.rgb_to_grayscale(bgr_0, num_output_channels=3).contiguous()
-            bgr_1 = F.rgb_to_grayscale(bgr_1, num_output_channels=3).contiguous()
+            bgrs = F.rgb_to_grayscale(bgrs, num_output_channels=3).contiguous()
             
         # Sharpen
         if random.random() < self.prob_sharpness:
             sharpness = random.random() * 8
             fgrs = F.adjust_sharpness(fgrs, sharpness)
             phas = F.adjust_sharpness(phas, sharpness)
-            bgr_0 = F.adjust_sharpness(bgr_0, sharpness)
-            bgr_1 = F.adjust_sharpness(bgr_1, sharpness)
+            bgrs = F.adjust_sharpness(bgrs, sharpness)
         
         # Blur
         if random.random() < self.prob_blur / 3:
             fgrs, phas = self._motion_blur(fgrs, phas)
         if random.random() < self.prob_blur / 3:
-            bgr_0, bgr_1 = self._motion_blur(bgr_0, bgr_1)
+            bgrs = self._motion_blur(bgrs)
         if random.random() < self.prob_blur / 3:
-            fgrs, phas, bgr_0, bgr_1 = self._motion_blur(fgrs, phas, bgr_0, bgr_1)
+            fgrs, phas, bgrs = self._motion_blur(fgrs, phas, bgrs)
 
         # Pause
         if random.random() < self.prob_pause:
-            fgrs, phas, bgr_0, bgr_1 = self._motion_pause(fgrs, phas, bgr_0, bgr_1)
+            fgrs, phas, bgrs = self._motion_pause(fgrs, phas, bgrs)
         
-        return fgrs, phas, bgr_0, bgr_1
+        return fgrs, phas, bgrs
     
     def _static_affine(self, *imgs, scale_ranges):
         params = transforms.RandomAffine.get_params(
