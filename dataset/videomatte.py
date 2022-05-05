@@ -107,6 +107,7 @@ class VideoMatteTrainAugmentation(MotionAugmentation):
             prob_blur=0.02,
             prob_hflip=0.5,
             prob_pause=0.03,
+            prob_mask=0.25
         )
 
 class VideoMatteValidAugmentation(MotionAugmentation):
@@ -122,4 +123,5 @@ class VideoMatteValidAugmentation(MotionAugmentation):
             prob_blur=0,
             prob_hflip=0,
             prob_pause=0,
+            prob_mask=0
         )

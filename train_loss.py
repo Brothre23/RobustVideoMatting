@@ -1,3 +1,4 @@
+from matplotlib import image
 import torch
 from torch.nn import functional as F
 import kornia
@@ -5,33 +6,66 @@ import kornia
 # --------------------------------------------------------------------------------- Train Loss
 
 
-def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha):
-    """
-    Args:
-        pred_fgr: Shape(B, T, 3, H, W)
-        pred_pha: Shape(B, T, 1, H, W)
-        true_fgr: Shape(B, T, 3, H, W)
-        true_pha: Shape(B, T, 1, H, W)
-    """
-    loss = dict()
-    # alpha losses
-    loss['pha_l1'] = F.l1_loss(pred_pha, true_pha)
-    loss['pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
-                                       true_pha[:, 1:] - true_pha[:, :-1]) * 5
-    loss['pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
+# def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha):
+#     """
+#     Args:
+#         pred_fgr: Shape(B, T, 3, H, W)
+#         pred_pha: Shape(B, T, 1, H, W)
+#         true_fgr: Shape(B, T, 3, H, W)
+#         true_pha: Shape(B, T, 1, H, W)
+#     """
+#     loss = dict()
+#     # alpha losses
+#     loss['pha_l1'] = F.l1_loss(pred_pha, true_pha)
+#     loss['pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
+#                                        true_pha[:, 1:] - true_pha[:, :-1]) * 5
+#     loss['pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
 
-    true_msk = true_pha.gt(0)
-    pred_fgr = pred_fgr * true_msk
-    true_fgr = true_fgr * true_msk
-    loss['fgr_l1'] = F.l1_loss(pred_fgr, true_fgr)
-    loss['fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
-                                       true_fgr[:, 1:] - true_fgr[:, :-1]) * 5
+#     true_msk = true_pha.gt(0)
+#     pred_fgr = pred_fgr * true_msk
+#     true_fgr = true_fgr * true_msk
+#     loss['fgr_l1'] = F.l1_loss(pred_fgr, true_fgr)
+#     loss['fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
+#                                        true_fgr[:, 1:] - true_fgr[:, :-1]) * 5
 
-    loss['total'] = loss['pha_l1'] + loss['pha_coherence'] \
-                  + loss['pha_laplacian'] \
-                  + loss['fgr_l1'] + loss['fgr_coherence']
+#     loss['total'] = loss['pha_l1'] + loss['pha_coherence'] \
+#                   + loss['pha_laplacian'] \
+#                   + loss['fgr_l1'] + loss['fgr_coherence']
 
-    return loss
+#     return loss
+
+
+def matting_loss(pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha):
+    loss = {}
+    loss['total'] = 0.0
+
+    loss['pha_l1'] = (F.l1_loss(pred_pha_os1 * weight_os1, true_pha * weight_os1) * 3 + \
+                      F.l1_loss(pred_pha_os4 * weight_os4, true_pha * weight_os4) * 2 + \
+                      F.l1_loss(pred_pha_os8, true_pha) * 1) / 6
+    loss['pha_coherence'] = (coherence_loss(pred_pha_os1, true_pha) * 3 + \
+                             coherence_loss(pred_pha_os4, true_pha) * 2 + \
+                             coherence_loss(pred_pha_os8, true_pha) * 1) / 6
+    loss['pha_laplacian'] = (laplacian_loss(pred_pha_os1.flatten(0, 1), true_pha.flatten(0, 1), weight_os1.flatten(0, 1)) * 3 + \
+                             laplacian_loss(pred_pha_os4.flatten(0, 1), true_pha.flatten(0, 1), weight_os4.flatten(0, 1)) * 2 + \
+                             laplacian_loss(pred_pha_os8.flatten(0, 1), true_pha.flatten(0, 1)) * 1) / 6
+    # loss['pha_l1'] = F.l1_loss(true_pha, pred_pha_os1)
+    # loss['pha_coherence'] = coherence_loss(true_pha, pred_pha_os1)
+    # loss['pha_laplacian'] = laplacian_loss(true_pha.flatten(0, 1), pred_pha_os1.flatten(0, 1))
+
+    true_fg_msk = true_pha.gt(0)
+    pred_fgr = pred_fgr * true_fg_msk
+    true_fgr = true_fgr * true_fg_msk
+    loss['fgr_l1'] = F.l1_loss(true_fgr, pred_fgr) * 2
+    loss['fgr_coherence'] = coherence_loss(true_fgr, pred_fgr) * 2
+
+    for key in loss.keys():
+        loss['total'] += loss[key]
+
+    return loss     
+
+def coherence_loss(pred, true):
+    return F.mse_loss(pred[:, 1:] - pred[:, :-1],
+                      true[:, 1:] - true[:, :-1]) * 5
 
 
 def segmentation_loss(pred_seg, true_seg):
@@ -43,21 +77,23 @@ def segmentation_loss(pred_seg, true_seg):
     return F.binary_cross_entropy_with_logits(pred_seg, true_seg)
 
 
-def gan_loss(pred, true):
-    return F.mse_loss(pred, true)
-
-
 # ----------------------------------------------------------------------------- Laplacian Loss
 
 
-def laplacian_loss(pred, true, max_levels=5):
+def laplacian_loss(pred, true, weight=None, max_levels=3):
     kernel = gauss_kernel(device=pred.device, dtype=pred.dtype)
+    loss = 0
     pred_pyramid = laplacian_pyramid(pred, kernel, max_levels)
     true_pyramid = laplacian_pyramid(true, kernel, max_levels)
-    loss = 0
-    for level in range(max_levels):
-        loss += (2**level) * F.l1_loss(pred_pyramid[level],
-                                       true_pyramid[level])
+    if weight != None:
+        weight_pyramid = normal_pyramid(weight, max_levels)
+        for level in range(max_levels):
+            loss += (2**level) * F.l1_loss(pred_pyramid[level] * weight_pyramid[level],
+                                           true_pyramid[level] * weight_pyramid[level])
+    else:
+        for level in range(max_levels):
+            loss += (2**level) * F.l1_loss(pred_pyramid[level],
+                                           true_pyramid[level])
     return loss / max_levels
 
 
@@ -74,6 +110,17 @@ def laplacian_pyramid(img, kernel, max_levels):
     return pyramid
 
 
+def normal_pyramid(img, max_levels):
+    current = img
+    pyramid = []
+    for _ in range(max_levels):
+        # down = downsample(current)
+        down = current[:, :, ::2, ::2]
+        pyramid.append(current)
+        current = down
+    return pyramid
+
+
 def gauss_kernel(device='cpu', dtype=torch.float32):
     kernel = torch.tensor(
         [[1, 4, 6, 4, 1], [4, 16, 24, 16, 4], [6, 24, 36, 24, 6],
@@ -86,11 +133,11 @@ def gauss_kernel(device='cpu', dtype=torch.float32):
 
 
 def gauss_convolution(img, kernel):
-    # B, C, H, W = img.shape
-    # img = img.reshape(B * C, 1, H, W)
+    B, C, H, W = img.shape
+    img = img.reshape(B * C, 1, H, W)
     img = F.pad(img, (2, 2, 2, 2), mode='reflect')
     img = F.conv2d(img, kernel)
-    # img = img.reshape(B, C, H, W)
+    img = img.reshape(B, C, H, W)
     return img
 
 

@@ -3,116 +3,173 @@ from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from typing import Tuple, Optional
-from .D3D.modules.deform_conv import *
+# from .D3D.modules.deform_conv import *
 
 class RecurrentDecoder(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.avgpool = AvgPool()
+
         self.decode4 = BottleneckBlock(in_channels[3])
         self.decode3 = UpsamplingBlock(out_channels[0], in_channels[2], 3, out_channels[1])
         self.decode2 = UpsamplingBlock(out_channels[1], in_channels[1], 3, out_channels[2])
         self.decode1 = UpsamplingBlock(out_channels[2], in_channels[0], 3, out_channels[3])
         self.decode0 = OutputBlock(out_channels[3], 3, out_channels[4])
 
+        self.project_OS1 = nn.Sequential(
+            nn.Conv2d(out_channels[4], 16, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(16, 4, kernel_size=3, stride=1, padding=1),
+        )
+        self.project_OS4 = nn.Sequential(
+            nn.Conv2d(out_channels[2], 16, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+        )
+        self.project_OS8 = nn.Sequential(
+            nn.Conv2d(out_channels[1], 16, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+        )
+        self.project_seg = nn.Sequential(
+            nn.Conv2d(out_channels[4], 16, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+        )
+
     def forward(self,
                 s0: Tensor, f1: Tensor, f2: Tensor, f3: Tensor, f4: Tensor,
                 r1: Optional[Tensor], r2: Optional[Tensor],
-                r3: Optional[Tensor], r4: Optional[Tensor]):
+                r3: Optional[Tensor], r4: Optional[Tensor],
+                segmentation_pass: bool = False):
         # x: output from the previous stage
         # f: output from the encoder block
-        # s: downsampled feature map after average pooling
+        # s: downsampled source image after average pooling
         # r: output from the previous stage (hidden state)
-        s1, s2, s3 = self.avgpool(s0)
-        x4, r4 = self.decode4(f4, r4)
-        x3, r3 = self.decode3(x4, f3, s3, r3)
-        x2, r2 = self.decode2(x3, f2, s2, r2)
-        x1, r1 = self.decode1(x2, f1, s1, r1)
-        x0 = self.decode0(x1, s0)
-        return x0, r1, r2, r3, r4
+        if not segmentation_pass:
+            s1, s2, s3 = self.avgpool(s0)
+            x4, r4 = self.decode4(f4, r4)
+            x3, r3 = self.decode3(x4, f3, s3, r3)
+
+            B, T = x3.shape[:2]
+            os8 = self.project_OS8(x3.flatten(0, 1))
+            os8 = F.interpolate(os8, scale_factor=8.0, mode='bilinear', align_corners=False)
+            os8 = os8.unflatten(0, (B, T))
+
+            x2, r2 = self.decode2(x3, f2, s2, r2)
+
+            B, T = x2.shape[:2]
+            os4 = self.project_OS4(x2.flatten(0, 1))
+            os4 = F.interpolate(os4, scale_factor=4.0, mode='bilinear', align_corners=False)
+            os4 = os4.unflatten(0, (B, T))
+
+            x1, r1 = self.decode1(x2, f1, s1, r1)
+            x0 = self.decode0(x1, s0)
+
+            B, T = x0.shape[:2]
+            os1 = self.project_OS1(x0.flatten(0, 1))
+            os1 = os1.unflatten(0, (B, T))
+
+            return os1, os4, os8, r1, r2, r3, r4
+        else:
+            s1, s2, s3 = self.avgpool(s0)
+            x4, r4 = self.decode4(f4, r4)
+            x3, r3 = self.decode3(x4, f3, s3, r3)
+            x2, r2 = self.decode2(x3, f2, s2, r2)
+            x1, r1 = self.decode1(x2, f1, s1, r1)
+            x0 = self.decode0(x1, s0)
+
+            B, T = x0.shape[:2]
+            seg = self.project_seg(x0.flatten(0, 1))
+            seg = seg.unflatten(0, (B, T))
+
+            return seg, r1, r2, r3, r4
 
 
-class SelfAttention(nn.Module):
-    def __init__(self, channels, spatial):
-        super().__init__()
-        self.spatial_conv_q = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
-        self.spatial_conv_k = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
-        self.temporal_conv = nn.Conv3d(channels,
-                                        channels // 8,
-                                        kernel_size=(3, 1, 1),
-                                        padding=(1, 0, 0))
-        self.conv_v = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
-        self.softmax = nn.Softmax(2)
-        self.spatial = spatial
+# class SelfAttention(nn.Module):
+#     def __init__(self, channels, spatial):
+#         super().__init__()
+#         self.spatial_conv_q = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
+#         self.spatial_conv_k = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
+#         self.temporal_conv = nn.Conv3d(channels,
+#                                         channels // 8,
+#                                         kernel_size=(3, 1, 1),
+#                                         padding=(1, 0, 0))
+#         self.conv_v = nn.Conv3d(channels, channels, kernel_size=(1, 1, 1))
+#         self.softmax = nn.Softmax(2)
+#         self.spatial = spatial
 
-    def forward(self, x):
-        b, t, c, h, w = x.size()
+#     def forward(self, x):
+#         b, t, c, h, w = x.size()
 
-        x = torch.permute(x, (0, 2, 1, 3, 4))
+#         x = torch.permute(x, (0, 2, 1, 3, 4))
 
-        x_temporal_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+#         x_temporal_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
 
-        if self.spatial:
-            x_spatial_q = self.spatial_conv_q(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
-            x_spatial_k = self.spatial_conv_k(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
-            x_spatial_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
+#         if self.spatial:
+#             x_spatial_q = self.spatial_conv_q(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
+#             x_spatial_k = self.spatial_conv_k(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
+#             x_spatial_v = self.conv_v(x).permute(0, 2, 1, 3, 4).flatten(3, 4)
 
-            position_heat = torch.matmul(torch.transpose(x_spatial_q, dim0=2, dim1=3), x_spatial_k)
-            position_heat = self.softmax(position_heat)
-            channel_heat = torch.matmul(x_spatial_q, torch.transpose(x_spatial_k, dim0=2, dim1=3))
-            channel_heat = self.softmax(channel_heat)
-            position_out = torch.matmul(position_heat, torch.transpose(x_spatial_v, dim0=2, dim1=3))
-            channel_out = torch.matmul(channel_heat, x_spatial_v)
+#             position_heat = torch.matmul(torch.transpose(x_spatial_q, dim0=2, dim1=3), x_spatial_k)
+#             position_heat = self.softmax(position_heat)
+#             channel_heat = torch.matmul(x_spatial_q, torch.transpose(x_spatial_k, dim0=2, dim1=3))
+#             channel_heat = self.softmax(channel_heat)
+#             position_out = torch.matmul(position_heat, torch.transpose(x_spatial_v, dim0=2, dim1=3))
+#             channel_out = torch.matmul(channel_heat, x_spatial_v)
 
-            # position_out: b * t * hw * c, channel_out: b, t, c, hw
-            x = position_out.permute(0, 3, 1, 2).view(b, c, t, h, w) + channel_out.permute(0, 2, 1, 3).view(b, c, t, h, w)
+#             # position_out: b * t * hw * c, channel_out: b, t, c, hw
+#             x = position_out.permute(0, 3, 1, 2).view(b, c, t, h, w) + channel_out.permute(0, 2, 1, 3).view(b, c, t, h, w)
 
-        x_temporal_q = self.temporal_conv(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
-        x_temporal_k = self.temporal_conv(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+#         x_temporal_q = self.temporal_conv(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
+#         x_temporal_k = self.temporal_conv(x).permute(0, 2, 1, 3, 4).flatten(2, 4)
 
-        heat = torch.matmul(x_temporal_q, torch.transpose(x_temporal_k, dim0=1, dim1=2))
-        heat = self.softmax(heat)
-        out = torch.matmul(heat, x_temporal_v)
-        out = out.view(b, t, c, h, w)
+#         heat = torch.matmul(x_temporal_q, torch.transpose(x_temporal_k, dim0=1, dim1=2))
+#         heat = self.softmax(heat)
+#         out = torch.matmul(heat, x_temporal_v)
+#         out = out.view(b, t, c, h, w)
 
-        return out
-
-
-class SEBlock(nn.Module):
-    def __init__(self, channel, reduction=16):
-        super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(channel, channel // reduction, bias=False),
-            nn.ELU(inplace=True),
-            nn.Linear(channel // reduction, channel, bias=False),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        b, t, c, _, _ = x.size()
-        y_list = []
-        for i in range(t):
-            y = self.avg_pool(x[:, i, :, :, :]).view(b, c)
-            y = self.fc(y).view(b, c, 1, 1)
-            y_list.append(y)
-        y_full = torch.stack(y_list, 1)
-        return x * y_full.expand_as(x)
+#         return out
 
 
-class DeformableConvolution(nn.Module):
-    def __init__(self, channels):
-        super().__init__()
-        self.conv = DeformConvPack(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.gamma = nn.Parameter(torch.zeros(1))
+# class SEBlock(nn.Module):
+#     def __init__(self, channel, reduction=16):
+#         super().__init__()
+#         self.avg_pool = nn.AdaptiveAvgPool2d(1)
+#         self.fc = nn.Sequential(
+#             nn.Linear(channel, channel // reduction, bias=False),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             nn.Linear(channel // reduction, channel, bias=False),
+#             nn.Sigmoid()
+#         )
 
-    def forward(self, x):
-        x = torch.permute(x, (0, 2, 1, 3, 4))
-        x = x.contiguous()
-        x_conv = self.conv(x)
-        out = self.gamma * x_conv.permute(0, 2, 1, 3, 4) + x.permute(0, 2, 1, 3, 4)
-        return out
+#     def forward(self, x):
+#         b, t, c, _, _ = x.size()
+#         y_list = []
+#         for i in range(t):
+#             y = self.avg_pool(x[:, i, :, :, :]).view(b, c)
+#             y = self.fc(y).view(b, c, 1, 1)
+#             y_list.append(y)
+#         y_full = torch.stack(y_list, 1)
+#         return x * y_full.expand_as(x)
 
+
+# class DeformableConvolution(nn.Module):
+#     def __init__(self, channels):
+#         super().__init__()
+#         self.conv = DeformConvPack(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
+#         self.gamma = nn.Parameter(torch.zeros(1))
+
+#     def forward(self, x):
+#         x = torch.permute(x, (0, 2, 1, 3, 4))
+#         x = x.contiguous()
+#         x_conv = self.conv(x)
+#         out = self.gamma * x_conv.permute(0, 2, 1, 3, 4) + x.permute(0, 2, 1, 3, 4)
+#         return out
     
 
 class AvgPool(nn.Module):
@@ -169,7 +226,7 @@ class UpsamplingBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ELU(True),
+            nn.LeakyReLU(0.2, inplace=True),
         )
         self.gru = ConvGRU(out_channels // 2)
         # self.attention = SelfAttention(out_channels, False)
@@ -192,7 +249,7 @@ class UpsamplingBlock(nn.Module):
         s = s.flatten(0, 1)
         x = self.upsample(x)
         x = x[:, :, :H, :W]
-        x = torch.cat([x, f, s], dim=1)
+        x = torch.cat([x, f, s[:, :3, :, :]], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
         a, b = x.split(self.out_channels // 2, dim=2)
@@ -219,10 +276,10 @@ class OutputBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ELU(True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ELU(True),
+            nn.LeakyReLU(0.2, inplace=True),
         )
         
     def forward_single_frame(self, x, s):
@@ -238,7 +295,7 @@ class OutputBlock(nn.Module):
         s = s.flatten(0, 1)
         x = self.upsample(x)
         x = x[:, :, :H, :W]
-        x = torch.cat([x, s], dim=1)
+        x = torch.cat([x, s[:, :3, :, :]], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
         return x

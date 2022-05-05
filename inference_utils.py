@@ -53,20 +53,24 @@ class VideoWriter:
 
 
 class ImageSequenceReader(Dataset):
-    def __init__(self, path, transform=None):
-        self.path = path
-        self.files = sorted(os.listdir(path))
+    def __init__(self, src_path, pha_path, transform=None):
+        self.src_path = src_path
+        self.src_files = sorted(os.listdir(src_path))
+        self.pha_path = pha_path
+        self.pha_files = sorted(os.listdir(pha_path))
         self.transform = transform
         
     def __len__(self):
-        return len(self.files)
+        return len(self.src_files)
     
     def __getitem__(self, idx):
-        with Image.open(os.path.join(self.path, self.files[idx])) as img:
-            img.load()
+        with Image.open(os.path.join(self.src_path, self.src_files[idx])) as src_img:
+            src_img.load()
+        with Image.open(os.path.join(self.pha_path, self.pha_files[idx])) as pha_img:
+            pha_img.load()
         if self.transform is not None:
-            return self.transform(img)
-        return img
+            return self.transform(src_img), self.transform(pha_img)
+        return src_img, pha_img
 
 
 class ImageSequenceWriter:

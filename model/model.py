@@ -1,3 +1,4 @@
+from dis import dis
 from xml.dom.minidom import Element
 import torch
 from torch import Tensor
@@ -10,9 +11,13 @@ from .shufflenetv2 import ShuffleNetV2Encoder
 from .mobilenetv3 import MobileNetV3LargeEncoder
 from .resnet import ResNet50Encoder
 from .lraspp import LRASPP
-from .decoder import RecurrentDecoder, SEBlock, Projection
+# from .decoder import RecurrentDecoder, SEBlock, Projection
+from .decoder import RecurrentDecoder
 from .fast_guided_filter import FastGuidedFilterRefiner
 from .deep_guided_filter import DeepGuidedFilterRefiner
+
+import cv2
+from torch import distributed as dist
 
 class MattingNetwork(nn.Module):
     def __init__(self,
@@ -20,7 +25,7 @@ class MattingNetwork(nn.Module):
                  refiner: str = 'deep_guided_filter',
                  pretrained_backbone: bool = False):
         super().__init__()
-        assert variant in ['mobilenetv3', 'shufflenetv2', 'resnet50', 'swin_transformer']
+        assert variant in ['mobilenetv3', 'shufflenetv2', 'resnet50']
         assert refiner in ['fast_guided_filter', 'deep_guided_filter']
         
         if variant == 'mobilenetv3':
@@ -39,8 +44,9 @@ class MattingNetwork(nn.Module):
             self.aspp = LRASPP(2048, 256)
             self.decoder = RecurrentDecoder([64, 256, 512, 256], [256, 128, 64, 32, 16])
 
-        self.project_mat = Projection(16, 4)
-        self.project_seg = Projection(16, 1)
+        # self.project_mat = Projection(16, 4)
+        # self.project_seg = Projection(16, 1)
+        self.kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1,30)]
 
         if refiner == 'deep_guided_filter':
             self.refiner = DeepGuidedFilterRefiner()
@@ -64,20 +70,43 @@ class MattingNetwork(nn.Module):
         f1, f2, f3, f4 = self.backbone(src_sm)
         # f1, f2, f3, f4 = self.se[0](f1), self.se[1](f2), self.se[2](f3), self.se[3](f4)
         f4 = self.aspp(f4)
-        hid, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4)
-        
-        if not segmentation_pass:
-            fgr_residual, pha = self.project_mat(hid).split([3, 1], dim=-3)
-            if downsample_ratio != 1:
-                fgr_residual, pha = self.refiner(src, src_sm, fgr_residual, pha, hid)
-            fgr = fgr_residual + src
-            fgr = fgr.clamp(0., 1.)
-            pha = pha.clamp(0., 1.)
-            return [fgr, pha, *rec]
-        else:
-            seg = self.project_seg(hid)
-            return [seg, *rec]
 
+        if not segmentation_pass:
+            os1, os4, os8, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, False)
+
+            fgr_residual, pha_os1 = os1.split([3, 1], dim=-3)
+            fgr = fgr_residual + src_sm[:, :, :3, :, :]
+            fgr = fgr.clamp(0., 1.)
+
+            pha_os8 = os8.clamp(0., 1.)
+            pha_os4 = os4.clamp(0., 1.)
+            pha_os1 = pha_os1.clamp(0., 1.)
+
+            weight_os4 = self.get_unknown_mask(pha_os8, 30)
+            pha_os4[weight_os4==0] = pha_os8[weight_os4==0]
+            weight_os1 = self.get_unknown_mask(pha_os4, 15)
+            pha_os1[weight_os1==0] = pha_os4[weight_os1==0]
+
+            # if downsample_ratio != 1:
+            #     fgr_residual, pha = self.refiner(src, src_sm, fgr_residual, pha, hid)
+            
+            return [pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
+        else:
+            seg, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, True)
+            return [seg, *rec]
+        # hid, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4)
+        
+        # if not segmentation_pass:
+        #     fgr_residual, pha = self.project_mat(hid).split([3, 1], dim=-3)
+        #     if downsample_ratio != 1:
+        #         fgr_residual, pha = self.refiner(src, src_sm, fgr_residual, pha, hid)
+        #     fgr = fgr_residual + src[:, :, :3, :, :]
+        #     fgr = fgr.clamp(0., 1.)
+        #     pha = pha.clamp(0., 1.)
+        #     return [fgr, pha, *rec]
+        # else:
+        #     seg = self.project_seg(hid)
+        #     return [seg, *rec]
 
     def _interpolate(self, x: Tensor, scale_factor: float):
         if x.ndim == 5:
@@ -89,3 +118,27 @@ class MattingNetwork(nn.Module):
             x = F.interpolate(x, scale_factor=scale_factor,
                 mode='bilinear', align_corners=False, recompute_scale_factor=False)
         return x
+
+    def get_unknown_mask(self, pred, rand_width):
+        B, T = pred.shape[:2]
+        pred = pred.flatten(0, 1)
+
+        pred_np = pred.data.cpu().numpy()
+        uncertain_area = np.ones_like(pred_np, dtype=np.uint8)
+        uncertain_area[pred_np == 1.0] = 0
+        uncertain_area[pred_np == 0.0] = 0
+
+        if self.training:
+            width = np.random.randint(1, rand_width)
+        else:
+            width = rand_width // 2
+
+        for i in range(B * T):
+            image = uncertain_area[i, :, :, :]
+            image = cv2.dilate(image, self.kernels[width])
+            uncertain_area[i, :, :, :] = image
+
+        weight = torch.from_numpy(uncertain_area).to(pred.device)
+        weight = weight.unflatten(0, (B, T))
+
+        return weight

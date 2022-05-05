@@ -30,7 +30,7 @@ class ImageMatteDataset(Dataset):
         
     def __len__(self):
         # return max(len(self.imagematte_files), len(self.background_image_files) + len(self.background_video_clips))
-        return len(self.imagematte_files)
+        return len(self.imagematte_files) * 10
     
     def __getitem__(self, idx):
         if random.random() < 0.5:
@@ -96,4 +96,5 @@ class ImageMatteAugmentation(MotionAugmentation):
             prob_blur=0.02,
             prob_hflip=0.5,
             prob_pause=0.03,
+            prob_mask=0.25
         )

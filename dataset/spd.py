@@ -22,6 +22,6 @@ class SuperviselyPersonDataset(Dataset):
             seg = seg.convert('L')
         
         if self.transform is not None:
-            img, seg = self.transform(img, seg)
+            img, msk, seg = self.transform(img, seg)
             
-        return img, seg
+        return img, msk, seg
