@@ -11,13 +11,14 @@ from .shufflenetv2 import ShuffleNetV2Encoder
 from .mobilenetv3 import MobileNetV3LargeEncoder
 from .resnet import ResNet50Encoder
 from .lraspp import LRASPP
-# from .decoder import RecurrentDecoder, SEBlock, Projection
-from .decoder import RecurrentDecoder
+from .decoder import RecurrentDecoder, SEBlock
 from .fast_guided_filter import FastGuidedFilterRefiner
 from .deep_guided_filter import DeepGuidedFilterRefiner
 
 import cv2
 from torch import distributed as dist
+import segmentation_models_pytorch as smp
+from .masknet import MaskNet
 
 class MattingNetwork(nn.Module):
     def __init__(self,
@@ -47,6 +48,13 @@ class MattingNetwork(nn.Module):
         # self.project_mat = Projection(16, 4)
         # self.project_seg = Projection(16, 1)
         self.kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1,30)]
+        self.mask_net = smp.UnetPlusPlus(
+                            encoder_name='timm-mobilenetv3_large_100',
+                            encoder_weights='imagenet',
+                            in_channels=3,
+                            classes=1
+                        )
+        # self.mask_net = MaskNet(pretrained_backbone=True)
 
         if refiner == 'deep_guided_filter':
             self.refiner = DeepGuidedFilterRefiner()
@@ -66,6 +74,8 @@ class MattingNetwork(nn.Module):
             src_sm = self._interpolate(src, scale_factor=downsample_ratio)
         else:
             src_sm = src
+
+        src_sm, msk = self.get_seg_mask(src_sm)
         
         f1, f2, f3, f4 = self.backbone(src_sm)
         # f1, f2, f3, f4 = self.se[0](f1), self.se[1](f2), self.se[2](f3), self.se[3](f4)
@@ -90,23 +100,10 @@ class MattingNetwork(nn.Module):
             # if downsample_ratio != 1:
             #     fgr_residual, pha = self.refiner(src, src_sm, fgr_residual, pha, hid)
             
-            return [pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
+            return [msk, pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
         else:
             seg, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, True)
-            return [seg, *rec]
-        # hid, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4)
-        
-        # if not segmentation_pass:
-        #     fgr_residual, pha = self.project_mat(hid).split([3, 1], dim=-3)
-        #     if downsample_ratio != 1:
-        #         fgr_residual, pha = self.refiner(src, src_sm, fgr_residual, pha, hid)
-        #     fgr = fgr_residual + src[:, :, :3, :, :]
-        #     fgr = fgr.clamp(0., 1.)
-        #     pha = pha.clamp(0., 1.)
-        #     return [fgr, pha, *rec]
-        # else:
-        #     seg = self.project_seg(hid)
-        #     return [seg, *rec]
+            return [msk, seg, *rec]
 
     def _interpolate(self, x: Tensor, scale_factor: float):
         if x.ndim == 5:
@@ -142,3 +139,23 @@ class MattingNetwork(nn.Module):
         weight = weight.unflatten(0, (B, T))
 
         return weight
+
+    def get_seg_mask(self, src):
+        B, T = src.shape[:2]
+        src = src.flatten(0, 1)
+
+        if self.training:
+            msk = self.mask_net(F.interpolate(src, scale_factor=0.5,
+                                                mode='bilinear', align_corners=False, recompute_scale_factor=False))
+            msk = msk.clamp(0., 1.)
+            msk = F.interpolate(msk, scale_factor=2.0,
+                                mode='bilinear', align_corners=False, recompute_scale_factor=False)
+        else:
+            msk = self.mask_net(src)
+            msk = msk.clamp(0., 1.)
+
+        msk = msk.unflatten(0, (B, T))
+        src = src.unflatten(0, (B, T))
+        src = torch.cat((src, msk), dim=2)
+
+        return src, msk

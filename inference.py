@@ -28,7 +28,6 @@ import random
 
 def convert_video(model,
                   input_source: str,
-                  alpha_source: str,
                   input_resize: Optional[Tuple[int, int]] = None,
                   downsample_ratio: Optional[float] = None,
                   output_type: str = 'video',
@@ -67,10 +66,10 @@ def convert_video(model,
     assert seq_chunk >= 1, 'Sequence chunk must be >= 1'
     assert num_workers >= 0, 'Number of workers must be >= 0'
 
-    model_seg = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True).to('cuda:0')
-    model_seg.eval()
+    # model_seg = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True).to('cuda:0')
+    # model_seg.eval()
 
-    transform_seg = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    # transform_seg = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     
     # Initialize transform
     if input_resize is not None:
@@ -85,7 +84,7 @@ def convert_video(model,
     if os.path.isfile(input_source):
         source = VideoReader(input_source, transform)
     else:
-        source = ImageSequenceReader(input_source, alpha_source, transform)
+        source = ImageSequenceReader(input_source, transform)
     reader = DataLoader(source, batch_size=seq_chunk, pin_memory=True, num_workers=num_workers)
     
     # Initialize writers
@@ -131,47 +130,13 @@ def convert_video(model,
         with torch.no_grad():
             bar = tqdm(total=len(source), disable=not progress, dynamic_ncols=True)
             rec = [None] * 4
-            for src, gt in reader:
-
-                src_seg = src.to(device, dtype, non_blocking=True)
-                src_seg = transform_seg(src_seg)
-
-                seg = model_seg(src_seg)['out']
-                seg = seg.softmax(dim=1)
-                seg = seg[:, 15, :, :]
-                seg = (seg > 0.7).float()
-                seg.unsqueeze_(1)
+            for src in reader:
 
                 # if downsample_ratio is None:
                 #     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
-                # gt_np = gt.data.cpu().numpy()
-                # gt_np = np.transpose(gt_np, (0, 2, 3, 1))
-                # msks = []
-                # for i in range(gt_np.shape[0]):
-                #     msk = np.array(gt_np[i, :, :, :].copy())
-                #     _, msk = cv2.threshold(msk, 0.5, 1, cv2.THRESH_BINARY)
-                #     random_num = random.randint(0,3)
-                #     if random_num == 0:
-                #         msk = cv2.erode(msk, kernels[np.random.randint(1, 30)])
-                #     elif random_num == 1:
-                #         msk = cv2.dilate(msk, kernels[np.random.randint(1, 30)])
-                #     elif random_num == 2:
-                #         msk = cv2.erode(msk, kernels[np.random.randint(1, 30)])
-                #         msk = cv2.dilate(msk, kernels[np.random.randint(1, 30)])
-                #     else:
-                #         msk = cv2.dilate(msk, kernels[np.random.randint(1, 30)])
-                #         msk = cv2.erode(msk, kernels[np.random.randint(1, 30)])
-                #     msks.append(msk)
-                # msks = torch.stack([F.to_tensor(msk) for msk in msks])
 
-                src = src.to(device, dtype, non_blocking=True)
-                src = torch.cat((src, seg), dim=1)
-                # msks = msks.to(device, dtype, non_blocking=True)
-                # src = torch.cat((src, msks), dim=1)
-
-                # src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
-                src.unsqueeze_(0)
-                fgr, pha, *rec = model(src, *rec, downsample_ratio)[4:]
+                src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
+                fgr, pha, *rec = model(src, *rec, downsample_ratio)[5:]
                 # fgr, pha = model(src, downsample_ratio)
 
                 if output_foreground is not None:
@@ -225,7 +190,6 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint', type=str, required=True)
     parser.add_argument('--device', type=str, required=True)
     parser.add_argument('--input-source', type=str, required=True)
-    parser.add_argument('--alpha-source', type=str, required=True)
     parser.add_argument('--input-resize', type=int, default=None, nargs=2)
     parser.add_argument('--downsample-ratio', type=float)
     parser.add_argument('--output-composition', type=str)
@@ -241,7 +205,6 @@ if __name__ == '__main__':
     converter = Converter(args.variant, args.checkpoint, args.device)
     converter.convert(
         input_source=args.input_source,
-        alpha_source=args.alpha_source,
         input_resize=args.input_resize,
         downsample_ratio=args.downsample_ratio,
         output_type=args.output_type,

@@ -37,9 +37,8 @@ class MotionAugmentation:
         self.prob_mask = prob_mask
         self.static_affine = static_affine
         self.aspect_ratio_range = aspect_ratio_range
-        # self.kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1, 30)]
-        self.model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet50', pretrained=True).to('cuda:0')
-        self.model.eval()
+
+        self.kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1, 30)]
         
     def __call__(self, fgrs, phas, bgrs):
         # Foreground affine
@@ -57,50 +56,48 @@ class MotionAugmentation:
             fgrs, phas = self._static_affine(fgrs, phas, scale_ranges=(0.5, 1))
             bgrs = self._static_affine(bgrs, scale_ranges=(1, 1.5))
 
-        # Gen Mask
-        low = 0.01
-        high = 1.0
-        threshold = random.random() * (high - low) + low
-        msks = []
-        for pha in phas:
-            msk = np.array(pha.copy())
-            _, msk = cv2.threshold(msk, threshold * 255, 255, cv2.THRESH_BINARY)
-            msks.append(msk)
-        for i in range(len(msks)):
-            random_num = random.randint(0,3)
-            if random_num == 0:
-                msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
-            elif random_num == 1:
-                msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-            elif random_num == 2:
-                msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
-                msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-            else:
-                msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-                msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
+        # # Gen Mask
+        # low = 0.01
+        # high = 1.0
+        # threshold = random.random() * (high - low) + low
+        # msks = []
+        # for pha in phas:
+        #     msk = np.array(pha.copy())
+        #     _, msk = cv2.threshold(msk, threshold * 255, 255, cv2.THRESH_BINARY)
+        #     msks.append(msk)
+        # for i in range(len(msks)):
+        #     random_num = random.randint(0,3)
+        #     if random_num == 0:
+        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
+        #     elif random_num == 1:
+        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
+        #     elif random_num == 2:
+        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
+        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
+        #     else:
+        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
+        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
 
-        # Cut Mask
-        for i in range(len(msks)):
-            if random.random() < self.prob_mask:
-                h, w = msks[0].shape
-                patch_size_h, patch_size_w = random.randint(h // 4, h // 2), random.randint(w // 4, w // 2)
-                x1 = random.randint(0, w - patch_size_w)
-                y1 = random.randint(0, h - patch_size_h)
-                x2 = random.randint(0, w - patch_size_w)
-                y2 = random.randint(0, h - patch_size_h)
-                msks[i][y1:y1+patch_size_h, x1:x1+patch_size_w] = msks[i][y2:y2+patch_size_h, x2:x2+patch_size_w].copy()
+        # # Cut Mask
+        # for i in range(len(msks)):
+        #     if random.random() < self.prob_mask:
+        #         h, w = msks[0].shape
+        #         patch_size_h, patch_size_w = random.randint(h // 4, h // 2), random.randint(w // 4, w // 2)
+        #         x1 = random.randint(0, w - patch_size_w)
+        #         y1 = random.randint(0, h - patch_size_h)
+        #         x2 = random.randint(0, w - patch_size_w)
+        #         y2 = random.randint(0, h - patch_size_h)
+        #         msks[i][y1:y1+patch_size_h, x1:x1+patch_size_w] = msks[i][y2:y2+patch_size_h, x2:x2+patch_size_w].copy()
         
         # To tensor
         fgrs = torch.stack([F.to_tensor(fgr) for fgr in fgrs])
         phas = torch.stack([F.to_tensor(pha) for pha in phas])
         bgrs = torch.stack([F.to_tensor(bgr) for bgr in bgrs])
-        msks = torch.stack([F.to_tensor(msk) for msk in msks])
         
         # Resize
         params = transforms.RandomResizedCrop.get_params(fgrs, scale=(1, 1), ratio=self.aspect_ratio_range)
         fgrs = F.resized_crop(fgrs, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
         phas = F.resized_crop(phas, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
-        msks = F.resized_crop(msks, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
         params = transforms.RandomResizedCrop.get_params(bgrs, scale=(1, 1), ratio=self.aspect_ratio_range)
         bgrs = F.resized_crop(bgrs, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
 
@@ -108,7 +105,6 @@ class MotionAugmentation:
         if random.random() < self.prob_hflip:
             fgrs = F.hflip(fgrs)
             phas = F.hflip(phas)
-            msks = F.hflip(msks)
         if random.random() < self.prob_hflip:
             bgrs = F.hflip(bgrs)
 
@@ -132,22 +128,21 @@ class MotionAugmentation:
             sharpness = random.random() * 8
             fgrs = F.adjust_sharpness(fgrs, sharpness)
             phas = F.adjust_sharpness(phas, sharpness)
-            msks = F.adjust_sharpness(msks, sharpness)
             bgrs = F.adjust_sharpness(bgrs, sharpness)
         
-        # # Blur
-        # if random.random() < self.prob_blur / 3:
-        #     fgrs, phas, msks = self._motion_blur(fgrs, phas, msks)
-        # if random.random() < self.prob_blur / 3:
-        #     bgrs = self._motion_blur(bgrs)
-        # if random.random() < self.prob_blur / 3:
-        #     fgrs, phas, msks, bgrs = self._motion_blur(fgrs, phas, msks, bgrs)
+        # Blur
+        if random.random() < self.prob_blur / 3:
+            fgrs, phas = self._motion_blur(fgrs, phas)
+        if random.random() < self.prob_blur / 3:
+            bgrs = self._motion_blur(bgrs)
+        if random.random() < self.prob_blur / 3:
+            fgrs, phas, bgrs = self._motion_blur(fgrs, phas, bgrs)
 
-        # # Pause
-        # if random.random() < self.prob_pause:
-        #     fgrs, phas, msks, bgrs = self._motion_pause(fgrs, phas, msks, bgrs)
+        # Pause
+        if random.random() < self.prob_pause:
+            fgrs, phas, bgrs = self._motion_pause(fgrs, phas, bgrs)
         
-        return fgrs, phas, msks, bgrs
+        return fgrs, phas, bgrs
     
     def _static_affine(self, *imgs, scale_ranges):
         params = transforms.RandomAffine.get_params(

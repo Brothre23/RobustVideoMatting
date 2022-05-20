@@ -11,33 +11,33 @@ class RecurrentDecoder(nn.Module):
         self.avgpool = AvgPool()
 
         self.decode4 = BottleneckBlock(in_channels[3])
-        self.decode3 = UpsamplingBlock(out_channels[0], in_channels[2], 3, out_channels[1])
-        self.decode2 = UpsamplingBlock(out_channels[1], in_channels[1], 3, out_channels[2])
-        self.decode1 = UpsamplingBlock(out_channels[2], in_channels[0], 3, out_channels[3])
+        self.decode3 = UpsamplingBlock(out_channels[0], in_channels[2], 4, out_channels[1])
+        self.decode2 = UpsamplingBlock(out_channels[1], in_channels[1], 4, out_channels[2])
+        self.decode1 = UpsamplingBlock(out_channels[2], in_channels[0], 4, out_channels[3])
         self.decode0 = OutputBlock(out_channels[3], 3, out_channels[4])
 
         self.project_OS1 = nn.Sequential(
             nn.Conv2d(out_channels[4], 16, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(16),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ELU(inplace=True),
             nn.Conv2d(16, 4, kernel_size=3, stride=1, padding=1),
         )
         self.project_OS4 = nn.Sequential(
             nn.Conv2d(out_channels[2], 16, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(16),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ELU(inplace=True),
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         )
         self.project_OS8 = nn.Sequential(
             nn.Conv2d(out_channels[1], 16, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(16),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ELU(inplace=True),
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         )
         self.project_seg = nn.Sequential(
             nn.Conv2d(out_channels[4], 16, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(16),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ELU(inplace=True),
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         )
 
@@ -136,26 +136,26 @@ class RecurrentDecoder(nn.Module):
 #         return out
 
 
-# class SEBlock(nn.Module):
-#     def __init__(self, channel, reduction=16):
-#         super().__init__()
-#         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-#         self.fc = nn.Sequential(
-#             nn.Linear(channel, channel // reduction, bias=False),
-#             nn.LeakyReLU(0.2, inplace=True),
-#             nn.Linear(channel // reduction, channel, bias=False),
-#             nn.Sigmoid()
-#         )
+class SEBlock(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ELU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
 
-#     def forward(self, x):
-#         b, t, c, _, _ = x.size()
-#         y_list = []
-#         for i in range(t):
-#             y = self.avg_pool(x[:, i, :, :, :]).view(b, c)
-#             y = self.fc(y).view(b, c, 1, 1)
-#             y_list.append(y)
-#         y_full = torch.stack(y_list, 1)
-#         return x * y_full.expand_as(x)
+    def forward(self, x):
+        b, t, c, _, _ = x.size()
+        y_list = []
+        for i in range(t):
+            y = self.avg_pool(x[:, i, :, :, :]).view(b, c)
+            y = self.fc(y).view(b, c, 1, 1)
+            y_list.append(y)
+        y_full = torch.stack(y_list, 1)
+        return x * y_full.expand_as(x)
 
 
 # class DeformableConvolution(nn.Module):
@@ -203,7 +203,8 @@ class BottleneckBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.channels = channels
-        self.gru = ConvGRU(channels // 2)
+        # self.gru = ConvGRU(channels // 2)
+        self.gru = ConvGRU(channels)
         # self.attention = SelfAttention(channels, True)
         # self.deform = DeformableConvolution(channels)
 
@@ -212,9 +213,10 @@ class BottleneckBlock(nn.Module):
         # with torch.cuda.amp.autocast(enabled=False):
         #     x = x.float()
         #     x = self.deform(x)
-        a, b = x.split(self.channels // 2, dim=-3)
-        b, r = self.gru(b, r)
-        x = torch.cat([a, b], dim=-3)
+        # a, b = x.split(self.channels // 2, dim=-3)
+        # b, r = self.gru(b, r)
+        # x = torch.cat([a, b], dim=-3)
+        x, r = self.gru(x, r)
         return x, r
 
     
@@ -226,20 +228,23 @@ class UpsamplingBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ELU(inplace=True),
         )
-        self.gru = ConvGRU(out_channels // 2)
+        # self.gru = ConvGRU(out_channels // 2)
+        self.gru = ConvGRU(out_channels)
         # self.attention = SelfAttention(out_channels, False)
         # self.deform = DeformableConvolution(out_channels)
 
     def forward_single_frame(self, x, f, s, r: Optional[Tensor]):
         x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
+        # x = torch.cat([x, f, s[:, :3, :, :]], dim=1)
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
-        a, b = x.split(self.out_channels // 2, dim=1)
-        b, r = self.gru(b, r)
-        x = torch.cat([a, b], dim=1)
+        # a, b = x.split(self.out_channels // 2, dim=1)
+        # b, r = self.gru(b, r)
+        # x = torch.cat([a, b], dim=1)
+        x, r = self.gru(x, r)
         return x, r
 
     def forward_time_series(self, x, f, s, r: Optional[Tensor]):
@@ -249,12 +254,14 @@ class UpsamplingBlock(nn.Module):
         s = s.flatten(0, 1)
         x = self.upsample(x)
         x = x[:, :, :H, :W]
-        x = torch.cat([x, f, s[:, :3, :, :]], dim=1)
+        # x = torch.cat([x, f, s[:, :3, :, :]], dim=1)
+        x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
-        a, b = x.split(self.out_channels // 2, dim=2)
-        b, r = self.gru(b, r)
-        x = torch.cat([a, b], dim=2)
+        # a, b = x.split(self.out_channels // 2, dim=2)
+        # b, r = self.gru(b, r)
+        # x = torch.cat([a, b], dim=2)
+        x, r = self.gru(x, r)
         # x = self.attention(x)
         # with torch.cuda.amp.autocast(enabled=False):
         #     x = x.float()
@@ -276,10 +283,10 @@ class OutputBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ELU(inplace=True),
             nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ELU(inplace=True),
         )
         
     def forward_single_frame(self, x, s):

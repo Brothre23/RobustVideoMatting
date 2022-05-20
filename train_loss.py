@@ -1,7 +1,8 @@
 from matplotlib import image
 import torch
 from torch.nn import functional as F
-import kornia
+import numpy as np
+import cv2
 
 # --------------------------------------------------------------------------------- Train Loss
 
@@ -35,7 +36,7 @@ import kornia
 #     return loss
 
 
-def matting_loss(pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha):
+def matting_loss(pred_msk, pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha):
     loss = {}
     loss['total'] = 0.0
 
@@ -48,9 +49,7 @@ def matting_loss(pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1,
     loss['pha_laplacian'] = (laplacian_loss(pred_pha_os1.flatten(0, 1), true_pha.flatten(0, 1), weight_os1.flatten(0, 1)) * 3 + \
                              laplacian_loss(pred_pha_os4.flatten(0, 1), true_pha.flatten(0, 1), weight_os4.flatten(0, 1)) * 2 + \
                              laplacian_loss(pred_pha_os8.flatten(0, 1), true_pha.flatten(0, 1)) * 1) / 6
-    # loss['pha_l1'] = F.l1_loss(true_pha, pred_pha_os1)
-    # loss['pha_coherence'] = coherence_loss(true_pha, pred_pha_os1)
-    # loss['pha_laplacian'] = laplacian_loss(true_pha.flatten(0, 1), pred_pha_os1.flatten(0, 1))
+    loss['msk'] = (F.l1_loss(pred_msk.flatten(0, 1), true_pha.flatten(0, 1)) + laplacian_loss(pred_msk.flatten(0, 1), true_pha.flatten(0, 1))) * 0.25
 
     true_fg_msk = true_pha.gt(0)
     pred_fgr = pred_fgr * true_fg_msk
@@ -68,13 +67,36 @@ def coherence_loss(pred, true):
                       true[:, 1:] - true[:, :-1]) * 5
 
 
-def segmentation_loss(pred_seg, true_seg):
+def segmentation_loss(pred_msk, pred_seg, true_seg):
     """
     Args:
         pred_seg: Shape(B, T, 1, H, W)
         true_seg: Shape(B, T, 1, H, W)
     """
-    return F.binary_cross_entropy_with_logits(pred_seg, true_seg)
+    return F.binary_cross_entropy_with_logits(pred_seg, true_seg) + \
+           (F.l1_loss(pred_msk.flatten(0, 1), true_seg.flatten(0, 1)) + \
+           laplacian_loss(pred_msk.flatten(0, 1), true_seg.flatten(0, 1))) * 0.25
+
+
+# def mask_loss(pred, true):
+#     pred = pred.flatten(0, 1)
+#     true = true.flatten(0, 1)
+#     true_np = true.data.cpu().numpy()
+
+#     for i in range(true_np.shape[0]):
+#         img = true_np[i, 0, :, :]
+
+#         morphed = cv2.dilate(img, mask_loss.kernel)
+#         morphed = cv2.erode(morphed, mask_loss.kernel)
+#         morphed = (morphed > 0.5).astype(true_np.dtype)
+
+#         true_np[i, 0, :, :] = morphed
+
+#     true_morphed = torch.from_numpy(true_np).to(pred.device)
+
+#     return F.l1_loss(pred, true_morphed) + laplacian_loss(pred, true_morphed)
+
+# mask_loss.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (30, 30))
 
 
 # ----------------------------------------------------------------------------- Laplacian Loss

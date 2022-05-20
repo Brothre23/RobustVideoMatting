@@ -33,54 +33,54 @@ Background Video Train/Valid
 DATA_PATHS = {
     'videomatte_sd': {
         'train':
-        '../../下載/RobustVideoMatting/VideoMatte240K/VideoMatte240K_JPEG_SD/train',
+        '../dataset/VideoMatte240K/VideoMatte240K_JPEG_SD/train',
         'valid':
-        '../../下載/RobustVideoMatting/VideoMatte240K/VideoMatte240K_JPEG_SD/valid',
+        '../dataset/VideoMatte240K/VideoMatte240K_JPEG_SD/valid',
     },
     'videomatte_hd': {
         'train':
-        '../../下載/RobustVideoMatting/VideoMatte240K/VideoMatte240K_JPEG_HD/train',
+        '../dataset/VideoMatte240K/VideoMatte240K_JPEG_HD/train',
         'valid':
-        '../../下載/RobustVideoMatting/VideoMatte240K/VideoMatte240K_JPEG_HD/valid',
+        '../dataset/VideoMatte240K/VideoMatte240K_JPEG_HD/valid',
     },
     'background_images': {
         'train':
-        '../../下載/RobustVideoMatting/Background_Images/train',
+        '../dataset/Background_Images/train',
         'valid':
-        '../../下載/RobustVideoMatting/Background_Images/valid',
+        '../dataset/Background_Images/valid',
     },
     'background_videos': {
         'train':
-        '../../下載/RobustVideoMatting//Background_Videos/train',
+        '../dataset//Background_Videos/train',
         'valid':
-        '../../下載/RobustVideoMatting//Background_Videos/valid',
+        '../dataset//Background_Videos/valid',
     },
-    'natural_images': '../../下載/RobustVideoMatting/Real_Human/image_allframe'
+    'natural_images': '../dataset/Real_Human/image_allframe'
     ,
     'imagematte': {
         'train':
-        '../../下載/RobustVideoMatting/ImageMatte/train',
+        '../dataset/ImageMatte/train',
         'valid':
-        '../../下載/RobustVideoMatting/ImageMatte/valid',
+        '../dataset/ImageMatte/valid',
     },
     'coco_panoptic': {
         'imgdir':
-        '../../下載/RobustVideoMatting/coco/train2017/',
+        '../dataset/coco/train2017/',
         'anndir':
-        '../../下載/RobustVideoMatting/coco/panoptic_train2017/',
+        '../dataset/coco/panoptic_train2017/',
         'annfile':
-        '../../下載/RobustVideoMatting/coco/annotations/panoptic_train2017.json',
+        '../dataset/coco/annotations/panoptic_train2017.json',
     },
     'spd': {
         'imgdir':
-        '../../下載/RobustVideoMatting/SuperviselyPersonDataset/img',
+        '../dataset/SuperviselyPersonDataset/img',
         'segdir':
-        '../../下載/RobustVideoMatting/SuperviselyPersonDataset/seg',
+        '../dataset/SuperviselyPersonDataset/seg',
     },
     'youtubevis': {
         'videodir':
-        '../../下載/RobustVideoMatting/YouTubeVIS/train/JPEGImages',
+        '../dataset/YouTubeVIS/train/JPEGImages',
         'annfile':
-        '../../下載/RobustVideoMatting/YouTubeVIS/train/instances.json',
+        '../dataset/YouTubeVIS/train/instances.json',
     }
 }

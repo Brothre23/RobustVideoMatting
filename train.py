@@ -120,12 +120,14 @@ class Trainer:
     def parse_args(self):
         parser = argparse.ArgumentParser()
         # Model
-        parser.add_argument('--model-variant', type=str, required=True, choices=['mobilenetv3', 'shufflenetv2', 'micronet', 'resnet50', 'swin_transformer'])
+        parser.add_argument('--model-variant', type=str, required=True, choices=['mobilenetv3', 'shufflenetv2', 'resnet50'])
         parser.add_argument('--refiner', type=str, default='deep_guided_filter')
         # Matting dataset
         parser.add_argument('--dataset', type=str, required=True, choices=['videomatte', 'imagematte'])
         # Learning rate
+        parser.add_argument('--learning-rate-mask_net', type=float, required=True)
         parser.add_argument('--learning-rate-backbone', type=float, required=True)
+        # parser.add_argument('--learning-rate-se', type=float, required=True)
         parser.add_argument('--learning-rate-aspp', type=float, required=True)
         parser.add_argument('--learning-rate-decoder',type=float, required=True)
         parser.add_argument('--learning-rate-refiner', type=float, required=True)
@@ -136,7 +138,7 @@ class Trainer:
         parser.add_argument('--seq-length-lr', type=int, required=True)
         parser.add_argument('--seq-length-hr', type=int, default=6)
         parser.add_argument('--downsample-ratio', type=float, default=0.25)
-        parser.add_argument('--batch-size-per-gpu', type=int, default=2)
+        parser.add_argument('--batch-size-per-gpu', type=int, default=4)
         parser.add_argument('--num-workers', type=int, default=2)
         parser.add_argument('--epoch-start', type=int, default=0)
         parser.add_argument('--epoch-end', type=int, default=16)
@@ -337,8 +339,11 @@ class Trainer:
         self.log('Initializing model')
         self.model = MattingNetwork(
             self.args.model_variant, self.args.refiner, pretrained_backbone=True).to(self.rank)
+
         self.optimizer = Adam([
+            {'params': self.model.mask_net.parameters(), 'lr': self.args.learning_rate_mask_net},
             {'params': self.model.backbone.parameters(), 'lr': self.args.learning_rate_backbone},
+            # {'params': self.model.se.parameters(), 'lr': self.args.learning_rate_se},
             {'params': self.model.aspp.parameters(), 'lr': self.args.learning_rate_aspp},
             {'params': self.model.decoder.parameters(), 'lr': self.args.learning_rate_decoder},
             {'params': self.model.refiner.parameters(), 'lr': self.args.learning_rate_refiner}
@@ -372,8 +377,8 @@ class Trainer:
 
             self.log(f'Training epoch: {epoch}')
 
-            for true_fgr, true_pha, true_msk, true_bgr in tqdm(self.dataloader_train, disable=self.args.disable_progress_bar, dynamic_ncols=True):
-                input = [true_fgr, true_pha, true_msk, true_bgr]
+            for true_fgr, true_pha, true_bgr in tqdm(self.dataloader_train, disable=self.args.disable_progress_bar, dynamic_ncols=True):
+                input = [true_fgr, true_pha, true_bgr]
                 self.train_mat(input=input, downsample_ratio=1, tag='lr')
 
                 # High resolution pass
@@ -382,13 +387,13 @@ class Trainer:
                     input = [true_fgr, true_pha, true_bgr]
                     self.train_mat(input=input, downsample_ratio=self.args.downsample_ratio, tag='hr')
 
-                # # Segmentation pass
-                # if self.step % 2 == 0:
-                #     true_img, true_msk, true_seg = self.load_next_seg_video_sample()
-                #     self.train_seg(true_img, true_msk, true_seg, log_label='seg/video')
-                # else:
-                #     true_img, true_msk, true_seg = self.load_next_seg_image_sample()
-                #     self.train_seg(true_img.unsqueeze(1), true_msk.unsqueeze(1), true_seg.unsqueeze(1), log_label='seg/image')
+                # Segmentation pass
+                if self.step % 2 == 0:
+                    true_img, true_seg = self.load_next_seg_video_sample()
+                    self.train_seg(true_img, true_seg, log_label='seg/video')
+                else:
+                    true_img, true_seg = self.load_next_seg_image_sample()
+                    self.train_seg(true_img.unsqueeze(1), true_seg.unsqueeze(1), log_label='seg/image')
 
                 if self.step % self.args.checkpoint_save_interval == 0:
                     self.save()
@@ -400,18 +405,13 @@ class Trainer:
     def train_mat(self, input, downsample_ratio, tag):
         true_fgr = input[0].to(self.rank, non_blocking=True)
         true_pha = input[1].to(self.rank, non_blocking=True)
-        true_msk = input[2].to(self.rank, non_blocking=True)
-        true_bgr = input[3].to(self.rank, non_blocking=True)
-        true_fgr, true_pha, true_msk, true_bgr = self.random_crop(true_fgr, true_pha, true_msk, true_bgr)
+        true_bgr = input[2].to(self.rank, non_blocking=True)
+        true_fgr, true_pha, true_bgr = self.random_crop(true_fgr, true_pha, true_bgr)
         src = true_fgr * true_pha + true_bgr * (1 - true_pha)
-        # src = torch.cat((src, true_msk), dim=2)
-
-        loss = {}
-        loss['total'] = 0.0
 
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, pred_fgr, pred_pha_os1 = self.model_ddp(src, downsample_ratio=downsample_ratio)[:6]
-            loss = matting_loss(pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha)
+            pred_msk, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, pred_fgr, pred_pha_os1 = self.model_ddp(src, downsample_ratio=downsample_ratio)[:7]
+            loss = matting_loss(pred_msk, pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha)
     
         self.scaler.scale(loss['total']).backward()
         self.scaler.step(self.optimizer)
@@ -426,28 +426,27 @@ class Trainer:
         if self.rank == 0 and self.step % self.args.log_train_images_interval == 0:
             # self.writer.add_image(f'mat_{tag}/pred_fgr', make_grid(pred_fgr.flatten(0, 1), nrow=pred_fgr.size(0)), self.step)
             # self.writer.add_image(f'mat_{tag}/pred_pha', make_grid(pred_pha_os1.flatten(0, 1), nrow=pred_pha_os1.size(0)), self.step)
+            # self.writer.add_image(f'mat_{tag}/pred_msk', make_grid(pred_msk.flatten(0, 1), nrow=pred_msk.size(0)), self.step)
             # self.writer.add_image(f'mat_{tag}/true_fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(0)), self.step)
             # self.writer.add_image(f'mat_{tag}/true_pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(0)), self.step)
-            # self.writer.add_image(f'mat_{tag}/src', make_grid((src[:, :, :3, :, :]).flatten(0, 1), nrow=src.size(0)), self.step)
-            # self.writer.add_image(f'mat_{tag}/msk', make_grid((src[:, :, 3:, :, :]).flatten(0, 1), nrow=true_msk.size(0)), self.step)
+            # self.writer.add_image(f'mat_{tag}/src', make_grid(src.flatten(0, 1), nrow=src.size(0)), self.step)
             self.writer.add_image(f'mat_{tag}/pred_fgr', make_grid(pred_fgr.flatten(0, 1), nrow=pred_fgr.size(1)), self.step)
             self.writer.add_image(f'mat_{tag}/pred_pha', make_grid(pred_pha_os1.flatten(0, 1), nrow=pred_pha_os1.size(1)), self.step)
+            self.writer.add_image(f'mat_{tag}/pred_msk', make_grid(pred_msk.flatten(0, 1), nrow=pred_msk.size(1)), self.step)
             self.writer.add_image(f'mat_{tag}/true_fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(1)), self.step)
             self.writer.add_image(f'mat_{tag}/true_pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(1)), self.step)
-            self.writer.add_image(f'mat_{tag}/src', make_grid((src[:, :, :3, :, :]).flatten(0, 1), nrow=src.size(1)), self.step)
-            self.writer.add_image(f'mat_{tag}/msk', make_grid((src[:, :, 3:, :, :]).flatten(0, 1), nrow=true_msk.size(1)), self.step)
+            self.writer.add_image(f'mat_{tag}/src', make_grid(src.flatten(0, 1), nrow=src.size(1)), self.step)
 
 
-    def train_seg(self, true_img, true_msk, true_seg, log_label):
+    def train_seg(self, true_img, true_seg, log_label):
         true_img = true_img.to(self.rank, non_blocking=True)
-        true_msk = true_msk.to(self.rank, non_blocking=True)
         true_seg = true_seg.to(self.rank, non_blocking=True)
-        true_img, true_msk, true_seg = self.random_crop(true_img, true_msk, true_seg)
-        true_img = torch.cat((true_img, true_msk), dim=2)
+        true_img, true_seg = self.random_crop(true_img, true_seg)
+        # true_img = torch.cat((true_img, true_msk), dim=2)
 
         with autocast(enabled=not self.args.disable_mixed_precision):
-            pred_seg = self.model_ddp(true_img, segmentation_pass=True)[0]
-            loss = segmentation_loss(pred_seg, true_seg)
+            pred_msk, pred_seg = self.model_ddp(true_img, segmentation_pass=True)[:2]
+            loss = segmentation_loss(pred_msk, pred_seg, true_seg)
 
         self.scaler.scale(loss).backward()
         self.scaler.step(self.optimizer)
@@ -456,17 +455,19 @@ class Trainer:
 
         # save at step 0, 2
         if self.rank == 0 and (self.step - self.step % 2) % self.args.log_train_loss_interval == 0:
+            # for loss_name, loss_value in loss.items():
+            #     self.writer.add_scalar(f'seg_/{loss_name}', loss_value, self.step)
             self.writer.add_scalar(f'{log_label}_loss', loss, self.step)
 
         if self.rank == 0 and (self.step - self.step % 2) % self.args.log_train_images_interval == 0:
             # self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.batch_size_per_gpu), self.step)
             # self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
-            # self.writer.add_image(f'{log_label}_img', make_grid((true_img[:, :, :3, :, :]).flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
-            # self.writer.add_image(f'{log_label}_msk', make_grid((true_img[:, :, 3:, :, :]).flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
+            # self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
+            # self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
             self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.seq_length_lr), self.step)
             self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
-            self.writer.add_image(f'{log_label}_img', make_grid((true_img[:, :, :3, :, :]).flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
-            self.writer.add_image(f'{log_label}_msk', make_grid((true_img[:, :, 3:, :, :]).flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
+            self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
+            self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
 
     def load_next_mat_hr_sample(self):
         try:
@@ -532,7 +533,7 @@ class Trainer:
         while True:
             w = random.choice(range(w_old // 2, w_old))
             h = random.choice(range(h_old // 2, h_old))
-            if w % 16 == 0 and h % 16 == 0:
+            if w % 128 == 0 and h % 128 == 0:
                 break
         results = []
         for img in imgs:

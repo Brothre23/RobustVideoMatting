@@ -80,6 +80,7 @@ class Evaluator:
         self.results = [(dataset, clip, future.result()) for dataset, clip, future in tasks]
         
     def write_excel(self):
+        print(os.path.join(self.args.pred_dir, f'{os.path.basename(self.args.pred_dir)}.xlsx'))
         workbook = xlsxwriter.Workbook(os.path.join(self.args.pred_dir, f'{os.path.basename(self.args.pred_dir)}.xlsx'))
         summarysheet = workbook.add_worksheet('summary')
         metricsheets = [workbook.add_worksheet(metric) for metric in self.results[0][2].keys()]
