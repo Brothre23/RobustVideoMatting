@@ -11,7 +11,7 @@ from .shufflenetv2 import ShuffleNetV2Encoder
 from .mobilenetv3 import MobileNetV3LargeEncoder
 from .resnet import ResNet50Encoder
 from .lraspp import LRASPP
-from .decoder import RecurrentDecoder, SEBlock
+from .decoder import RecurrentDecoder
 from .fast_guided_filter import FastGuidedFilterRefiner
 from .deep_guided_filter import DeepGuidedFilterRefiner
 
@@ -31,30 +31,27 @@ class MattingNetwork(nn.Module):
         
         if variant == 'mobilenetv3':
             self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
-            # self.se = nn.ModuleList([SEBlock(16), SEBlock(24), SEBlock(40), SEBlock(960)]) 
             self.aspp = LRASPP(960, 128)
             self.decoder = RecurrentDecoder([16, 24, 40, 128], [128, 80, 40, 32, 16])
         elif variant == 'shufflenetv2':
             self.backbone = ShuffleNetV2Encoder(pretrained_backbone)
-            # self.se = nn.ModuleList([SEBlock(24), SEBlock(116), SEBlock(232), SEBlock(1024)]) 
             self.aspp = LRASPP(1024, 128)
             self.decoder = RecurrentDecoder([24, 116, 232, 128], [128, 80, 40, 32, 16])
         else:
             self.backbone = ResNet50Encoder(pretrained_backbone)
-            # self.se = nn.ModuleList([SEBlock(64), SEBlock(256), SEBlock(512), SEBlock(2048)]) 
             self.aspp = LRASPP(2048, 256)
             self.decoder = RecurrentDecoder([64, 256, 512, 256], [256, 128, 64, 32, 16])
 
         # self.project_mat = Projection(16, 4)
         # self.project_seg = Projection(16, 1)
         self.kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1,30)]
-        self.mask_net = smp.UnetPlusPlus(
-                            encoder_name='timm-mobilenetv3_large_100',
-                            encoder_weights='imagenet',
-                            in_channels=3,
-                            classes=1
-                        )
-        # self.mask_net = MaskNet(pretrained_backbone=True)
+        # self.mask_net = smp.UnetPlusPlus(
+        #                     encoder_name='timm-mobilenetv3_large_100',
+        #                     encoder_weights='imagenet',
+        #                     in_channels=3,
+        #                     classes=1
+        #                 )
+        self.mask_net = MaskNet(pretrained_backbone=True)
 
         if refiner == 'deep_guided_filter':
             self.refiner = DeepGuidedFilterRefiner()
@@ -82,7 +79,7 @@ class MattingNetwork(nn.Module):
         f4 = self.aspp(f4)
 
         if not segmentation_pass:
-            os1, os4, os8, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, False)
+            hid, os1, os4, os8, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, False)
 
             fgr_residual, pha_os1 = os1.split([3, 1], dim=-3)
             fgr = fgr_residual + src_sm[:, :, :3, :, :]
@@ -97,13 +94,56 @@ class MattingNetwork(nn.Module):
             weight_os1 = self.get_unknown_mask(pha_os4, 15)
             pha_os1[weight_os1==0] = pha_os4[weight_os1==0]
 
-            # if downsample_ratio != 1:
-            #     fgr_residual, pha = self.refiner(src, src_sm, fgr_residual, pha, hid)
-            
-            return [msk, pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
+            if downsample_ratio != 1:
+                fgr_residual, pha = self.refiner(src[:, :, :3, :, :], src_sm[:, :, :3, :, :], fgr_residual, pha_os1, hid)
+                fgr = fgr_residual + src[:, :, :3, :, :]
+                fgr = fgr.clamp(0., 1.)
+                pha = pha.clamp(0., 1.)
+
+                return {
+                    'msk': msk,
+                    'seg': None,
+                    'pha_os1': None,
+                    'pha_os4': None,
+                    'pha_os8': None,
+                    'weight_os1': None,
+                    'weight_os4': None,
+                    'fgr': None,
+                    'pha_lg': pha,
+                    'fgr_lg': fgr,
+                    'rec': rec
+                }
+            else:
+                # return [msk, pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
+                return {
+                    'msk': msk,
+                    'seg': None,
+                    'pha_os1': pha_os1,
+                    'pha_os4': pha_os4,
+                    'pha_os8': pha_os8,
+                    'weight_os1': weight_os1,
+                    'weight_os4': weight_os4,
+                    'fgr': fgr,
+                    'pha_lg': None,
+                    'fgr_lg': None,
+                    'rec': rec
+                }
         else:
             seg, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, True)
-            return [msk, seg, *rec]
+            # return [msk, seg, *rec]
+            return {
+                'msk': msk,
+                'seg': seg,
+                'pha_os1': None,
+                'pha_os4': None,
+                'pha_os8': None,
+                'weight_os1': None,
+                'weight_os4': None,
+                'fgr': None,
+                'pha_lg': None,
+                'fgr_lg': None,
+                'rec': rec
+            }
 
     def _interpolate(self, x: Tensor, scale_factor: float):
         if x.ndim == 5:
@@ -131,9 +171,9 @@ class MattingNetwork(nn.Module):
             width = rand_width // 2
 
         for i in range(B * T):
-            image = uncertain_area[i, :, :, :]
+            image = uncertain_area[i, 0, :, :]
             image = cv2.dilate(image, self.kernels[width])
-            uncertain_area[i, :, :, :] = image
+            uncertain_area[i, 0, :, :] = image
 
         weight = torch.from_numpy(uncertain_area).to(pred.device)
         weight = weight.unflatten(0, (B, T))
@@ -144,15 +184,20 @@ class MattingNetwork(nn.Module):
         B, T = src.shape[:2]
         src = src.flatten(0, 1)
 
-        if self.training:
-            msk = self.mask_net(F.interpolate(src, scale_factor=0.5,
-                                                mode='bilinear', align_corners=False, recompute_scale_factor=False))
-            msk = msk.clamp(0., 1.)
-            msk = F.interpolate(msk, scale_factor=2.0,
-                                mode='bilinear', align_corners=False, recompute_scale_factor=False)
-        else:
-            msk = self.mask_net(src)
-            msk = msk.clamp(0., 1.)
+        # if self.training:
+        #     msk = self.mask_net(F.interpolate(src, scale_factor=0.5,
+        #                                         mode='bilinear', align_corners=False, recompute_scale_factor=False))
+        #     msk = msk.clamp(0., 1.)
+        #     msk = F.interpolate(msk, scale_factor=2.0,
+        #                         mode='bilinear', align_corners=False, recompute_scale_factor=False)
+        # else:
+        #     msk = self.mask_net(src)
+        #     msk = msk.clamp(0., 1.)
+        msk = self.mask_net(F.interpolate(src, scale_factor=0.5,
+                                          mode='bilinear', align_corners=False, recompute_scale_factor=False))
+        msk = msk.clamp(0., 1.)
+        msk = F.interpolate(msk, size=(src.size(2), src.size(3)),
+                            mode='bilinear', align_corners=False, recompute_scale_factor=False)
 
         msk = msk.unflatten(0, (B, T))
         src = src.unflatten(0, (B, T))

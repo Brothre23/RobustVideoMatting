@@ -6,7 +6,7 @@ class LRASPP(nn.Module):
         self.aspp1 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ELU(inplace=True)
+            nn.ReLU(inplace=True)
         )
         self.aspp2 = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),

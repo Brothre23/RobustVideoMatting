@@ -120,6 +120,61 @@ class AvgPool(nn.Module):
             return self.forward_single_frame(s0)
 
 
+class h_sigmoid(nn.Module):
+    def __init__(self, inplace=True):
+        super(h_sigmoid, self).__init__()
+        self.relu = nn.ReLU6(inplace=inplace)
+
+    def forward(self, x):
+        return self.relu(x + 3) / 6
+
+
+class h_swish(nn.Module):
+    def __init__(self, inplace=True):
+        super(h_swish, self).__init__()
+        self.sigmoid = h_sigmoid(inplace=inplace)
+
+    def forward(self, x):
+        return x * self.sigmoid(x)
+
+
+class CoordAtt(nn.Module):
+    def __init__(self, inp, oup, groups=32):
+        super(CoordAtt, self).__init__()
+        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
+        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
+
+        mip = max(8, inp // groups)
+
+        self.conv1 = nn.Conv2d(inp, mip, kernel_size=1, stride=1, padding=0)
+        self.bn1 = nn.BatchNorm2d(mip)
+        self.conv2 = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
+        self.conv3 = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
+        self.relu = h_swish()
+
+    def forward(self, x):
+        identity = x
+        n,c,h,w = x.size()
+        x_h = self.pool_h(x)
+        x_w = self.pool_w(x).permute(0, 1, 3, 2)
+
+        y = torch.cat([x_h, x_w], dim=2)
+        y = self.conv1(y)
+        y = self.bn1(y)
+        y = self.relu(y) 
+        x_h, x_w = torch.split(y, [h, w], dim=2)
+        x_w = x_w.permute(0, 1, 3, 2)
+
+        x_h = self.conv2(x_h).sigmoid()
+        x_w = self.conv3(x_w).sigmoid()
+        x_h = x_h.expand(-1, -1, h, w)
+        x_w = x_w.expand(-1, -1, h, w)
+
+        y = identity * x_w * x_h
+
+        return y
+
+
 class BottleneckBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
@@ -137,14 +192,16 @@ class UpsamplingBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ReLU(inplace=True),
         )
+        # self.attent = CoordAtt(out_channels, out_channels)
 
     def forward_single_frame(self, x, f, s):
         x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
+        # x = self.attent(x)
         return x
 
     def forward_time_series(self, x, f, s):
@@ -156,6 +213,7 @@ class UpsamplingBlock(nn.Module):
         x = x[:, :, :H, :W]
         x = torch.cat([x, f, s[:, :3, :, :]], dim=1)
         x = self.conv(x)
+        # x = self.attent(x)
         x = x.unflatten(0, (B, T))
         return x
 
@@ -174,17 +232,19 @@ class OutputBlock(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels + src_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.ReLU(inplace=True),
         )
+        # self.attent = CoordAtt(out_channels, out_channels)
         
     def forward_single_frame(self, x, s):
         x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
         x = torch.cat([x, s], dim=1)
         x = self.conv(x)
+        # x = self.attent(x)
         return x
     
     def forward_time_series(self, x, s):
@@ -195,6 +255,7 @@ class OutputBlock(nn.Module):
         x = x[:, :, :H, :W]
         x = torch.cat([x, s[:, :3, :, :]], dim=1)
         x = self.conv(x)
+        # x = self.attent(x)
         x = x.unflatten(0, (B, T))
         return x
     

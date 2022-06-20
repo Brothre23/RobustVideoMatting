@@ -7,36 +7,7 @@ import cv2
 # --------------------------------------------------------------------------------- Train Loss
 
 
-# def matting_loss(pred_fgr, pred_pha, true_fgr, true_pha):
-#     """
-#     Args:
-#         pred_fgr: Shape(B, T, 3, H, W)
-#         pred_pha: Shape(B, T, 1, H, W)
-#         true_fgr: Shape(B, T, 3, H, W)
-#         true_pha: Shape(B, T, 1, H, W)
-#     """
-#     loss = dict()
-#     # alpha losses
-#     loss['pha_l1'] = F.l1_loss(pred_pha, true_pha)
-#     loss['pha_coherence'] = F.mse_loss(pred_pha[:, 1:] - pred_pha[:, :-1],
-#                                        true_pha[:, 1:] - true_pha[:, :-1]) * 5
-#     loss['pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
-
-#     true_msk = true_pha.gt(0)
-#     pred_fgr = pred_fgr * true_msk
-#     true_fgr = true_fgr * true_msk
-#     loss['fgr_l1'] = F.l1_loss(pred_fgr, true_fgr)
-#     loss['fgr_coherence'] = F.mse_loss(pred_fgr[:, 1:] - pred_fgr[:, :-1],
-#                                        true_fgr[:, 1:] - true_fgr[:, :-1]) * 5
-
-#     loss['total'] = loss['pha_l1'] + loss['pha_coherence'] \
-#                   + loss['pha_laplacian'] \
-#                   + loss['fgr_l1'] + loss['fgr_coherence']
-
-#     return loss
-
-
-def matting_loss(pred_msk, pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha):
+def lr_matting_loss(pred_msk, pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha):
     loss = {}
     loss['total'] = 0.0
 
@@ -60,7 +31,33 @@ def matting_loss(pred_msk, pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, w
     for key in loss.keys():
         loss['total'] += loss[key]
 
-    return loss     
+    return loss    
+
+
+def hr_matting_loss(pred_msk, pred_fgr, pred_pha, true_fgr, true_pha, downsample_ratio):
+    loss = {}
+    loss['total'] = 0.0
+
+    loss['pha_l1'] = F.l1_loss(pred_pha, true_pha)
+    loss['pha_coherence'] = coherence_loss(pred_pha, true_pha)
+    loss['pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
+
+    true_pha_msk = true_pha.flatten(0, 1)
+    true_pha_msk = F.interpolate(true_pha_msk, scale_factor=downsample_ratio,
+                                 mode='bilinear', align_corners=False, recompute_scale_factor=False)
+    loss['msk'] = (F.l1_loss(pred_msk.flatten(0, 1), true_pha_msk) + laplacian_loss(pred_msk.flatten(0, 1), true_pha_msk)) * 0.25
+
+    true_fg_msk = true_pha.gt(0)
+    pred_fgr = pred_fgr * true_fg_msk
+    true_fgr = true_fgr * true_fg_msk
+    loss['fgr_l1'] = F.l1_loss(true_fgr, pred_fgr) * 2
+    loss['fgr_coherence'] = coherence_loss(true_fgr, pred_fgr) * 2
+
+    for key in loss.keys():
+        loss['total'] += loss[key]
+
+    return loss  
+
 
 def coherence_loss(pred, true):
     return F.mse_loss(pred[:, 1:] - pred[:, :-1],
@@ -74,29 +71,8 @@ def segmentation_loss(pred_msk, pred_seg, true_seg):
         true_seg: Shape(B, T, 1, H, W)
     """
     return F.binary_cross_entropy_with_logits(pred_seg, true_seg) + \
-           (F.l1_loss(pred_msk.flatten(0, 1), true_seg.flatten(0, 1)) + \
-           laplacian_loss(pred_msk.flatten(0, 1), true_seg.flatten(0, 1))) * 0.25
-
-
-# def mask_loss(pred, true):
-#     pred = pred.flatten(0, 1)
-#     true = true.flatten(0, 1)
-#     true_np = true.data.cpu().numpy()
-
-#     for i in range(true_np.shape[0]):
-#         img = true_np[i, 0, :, :]
-
-#         morphed = cv2.dilate(img, mask_loss.kernel)
-#         morphed = cv2.erode(morphed, mask_loss.kernel)
-#         morphed = (morphed > 0.5).astype(true_np.dtype)
-
-#         true_np[i, 0, :, :] = morphed
-
-#     true_morphed = torch.from_numpy(true_np).to(pred.device)
-
-#     return F.l1_loss(pred, true_morphed) + laplacian_loss(pred, true_morphed)
-
-# mask_loss.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (30, 30))
+           F.l1_loss(pred_msk.flatten(0, 1), true_seg.flatten(0, 1)) + \
+           laplacian_loss(pred_msk.flatten(0, 1), true_seg.flatten(0, 1))
 
 
 # ----------------------------------------------------------------------------- Laplacian Loss
@@ -136,7 +112,7 @@ def normal_pyramid(img, max_levels):
     current = img
     pyramid = []
     for _ in range(max_levels):
-        # down = downsample(current)
+        current = crop_to_even_size(current)
         down = current[:, :, ::2, ::2]
         pyramid.append(current)
         current = down
