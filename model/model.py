@@ -14,6 +14,7 @@ from .lraspp import LRASPP
 from .decoder import RecurrentDecoder
 from .fast_guided_filter import FastGuidedFilterRefiner
 from .deep_guided_filter import DeepGuidedFilterRefiner
+from .PointRend.pointrend import PointRendRefiner
 
 import cv2
 from torch import distributed as dist
@@ -23,11 +24,11 @@ from .masknet import MaskNet
 class MattingNetwork(nn.Module):
     def __init__(self,
                  variant: str = 'mobilenetv3',
-                 refiner: str = 'deep_guided_filter',
+                 refiner: str = 'point_rend',
                  pretrained_backbone: bool = False):
         super().__init__()
         assert variant in ['mobilenetv3', 'shufflenetv2', 'resnet50']
-        assert refiner in ['fast_guided_filter', 'deep_guided_filter']
+        assert refiner in ['fast_guided_filter', 'deep_guided_filter', 'point_rend']
         
         if variant == 'mobilenetv3':
             self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
@@ -53,7 +54,9 @@ class MattingNetwork(nn.Module):
         #                 )
         self.mask_net = MaskNet(pretrained_backbone=True)
 
-        if refiner == 'deep_guided_filter':
+        if refiner == 'point_rend':
+            self.refiner = PointRendRefiner()
+        elif refiner == 'deep_guided_filter':
             self.refiner = DeepGuidedFilterRefiner()
         else:
             self.refiner = FastGuidedFilterRefiner()
@@ -95,8 +98,10 @@ class MattingNetwork(nn.Module):
             pha_os1[weight_os1==0] = pha_os4[weight_os1==0]
 
             if downsample_ratio != 1:
-                fgr_residual, pha = self.refiner(src[:, :, :3, :, :], src_sm[:, :, :3, :, :], fgr_residual, pha_os1, hid)
-                fgr = fgr_residual + src[:, :, :3, :, :]
+                # fgr_residual, pha = self.refiner(src[:, :, :3, :, :], src_sm[:, :, :3, :, :], fgr_residual, pha_os1, hid)
+                fgr_residual, pha = self.refiner(src, hid, fgr_residual, pha_os1)
+
+                fgr = fgr_residual + src
                 fgr = fgr.clamp(0., 1.)
                 pha = pha.clamp(0., 1.)
 

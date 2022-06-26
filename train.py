@@ -121,7 +121,7 @@ class Trainer:
         parser = argparse.ArgumentParser()
         # Model
         parser.add_argument('--model-variant', type=str, required=True, choices=['mobilenetv3', 'shufflenetv2', 'resnet50'])
-        parser.add_argument('--refiner', type=str, default='deep_guided_filter')
+        parser.add_argument('--refiner', type=str, default='point_rend')
         # Matting dataset
         parser.add_argument('--dataset', type=str, required=True, choices=['videomatte', 'imagematte'])
         # Learning rate
@@ -139,7 +139,7 @@ class Trainer:
         parser.add_argument('--seq-length-hr', type=int, default=6)
         # parser.add_argument('--resolution', type=int, default=512)
         # parser.add_argument('--seq-length', type=int, required=True)
-        parser.add_argument('--downsample-ratio', type=float, default=0.5)
+        parser.add_argument('--downsample-ratio', type=float, default=0.25)
         parser.add_argument('--batch-size-per-gpu', type=int, default=4)
         parser.add_argument('--num-workers', type=int, default=2)
         parser.add_argument('--epoch-start', type=int, default=0)
@@ -285,7 +285,7 @@ class Trainer:
                 shuffle=True)
             self.dataloader_hr_train = DataLoader(
                 dataset=self.dataset_hr_train,
-                batch_size=self.args.batch_size_per_gpu,
+                batch_size=self.args.batch_size_per_gpu // 4,
                 num_workers=self.args.num_workers,
                 sampler=self.datasampler_hr_train,
                 pin_memory=True)
@@ -465,19 +465,19 @@ class Trainer:
             for loss_name, loss_value in loss.items():
                 self.writer.add_scalar(f'mat_{tag}/{loss_name}', loss_value, self.step)
 
-        if self.rank == 0 and self.step % self.args.log_train_images_interval == 0:
-            # self.writer.add_image(f'mat_{tag}/pred_fgr', make_grid(pred_fgr.flatten(0, 1), nrow=pred_fgr.size(0)), self.step)
-            # self.writer.add_image(f'mat_{tag}/pred_pha', make_grid(pred_pha.flatten(0, 1), nrow=pred_pha.size(0)), self.step)
-            # self.writer.add_image(f'mat_{tag}/pred_msk', make_grid(pred_msk.flatten(0, 1), nrow=pred_msk.size(0)), self.step)
-            # self.writer.add_image(f'mat_{tag}/true_fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(0)), self.step)
-            # self.writer.add_image(f'mat_{tag}/true_pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(0)), self.step)
-            # self.writer.add_image(f'mat_{tag}/src', make_grid(src.flatten(0, 1), nrow=src.size(0)), self.step)
-            self.writer.add_image(f'mat_{tag}/pred_fgr', make_grid(pred_fgr.flatten(0, 1), nrow=pred_fgr.size(1)), self.step)
-            self.writer.add_image(f'mat_{tag}/pred_pha', make_grid(pred_pha.flatten(0, 1), nrow=pred_pha.size(1)), self.step)
-            self.writer.add_image(f'mat_{tag}/pred_msk', make_grid(pred_msk.flatten(0, 1), nrow=pred_msk.size(1)), self.step)
-            self.writer.add_image(f'mat_{tag}/true_fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(1)), self.step)
-            self.writer.add_image(f'mat_{tag}/true_pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(1)), self.step)
-            self.writer.add_image(f'mat_{tag}/src', make_grid(src.flatten(0, 1), nrow=src.size(1)), self.step)
+        # if self.rank == 0 and self.step % self.args.log_train_images_interval == 0:
+        #     # self.writer.add_image(f'mat_{tag}/pred_fgr', make_grid(pred_fgr.flatten(0, 1), nrow=pred_fgr.size(0)), self.step)
+        #     # self.writer.add_image(f'mat_{tag}/pred_pha', make_grid(pred_pha.flatten(0, 1), nrow=pred_pha.size(0)), self.step)
+        #     # self.writer.add_image(f'mat_{tag}/pred_msk', make_grid(pred_msk.flatten(0, 1), nrow=pred_msk.size(0)), self.step)
+        #     # self.writer.add_image(f'mat_{tag}/true_fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(0)), self.step)
+        #     # self.writer.add_image(f'mat_{tag}/true_pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(0)), self.step)
+        #     # self.writer.add_image(f'mat_{tag}/src', make_grid(src.flatten(0, 1), nrow=src.size(0)), self.step)
+        #     self.writer.add_image(f'mat_{tag}/pred_fgr', make_grid(pred_fgr.flatten(0, 1), nrow=pred_fgr.size(1)), self.step)
+        #     self.writer.add_image(f'mat_{tag}/pred_pha', make_grid(pred_pha.flatten(0, 1), nrow=pred_pha.size(1)), self.step)
+        #     self.writer.add_image(f'mat_{tag}/pred_msk', make_grid(pred_msk.flatten(0, 1), nrow=pred_msk.size(1)), self.step)
+        #     self.writer.add_image(f'mat_{tag}/true_fgr', make_grid(true_fgr.flatten(0, 1), nrow=true_fgr.size(1)), self.step)
+        #     self.writer.add_image(f'mat_{tag}/true_pha', make_grid(true_pha.flatten(0, 1), nrow=true_pha.size(1)), self.step)
+        #     self.writer.add_image(f'mat_{tag}/src', make_grid(src.flatten(0, 1), nrow=src.size(1)), self.step)
 
 
     def train_seg(self, true_img, true_seg, log_label):
@@ -503,15 +503,15 @@ class Trainer:
             #     self.writer.add_scalar(f'seg_/{loss_name}', loss_value, self.step)
             self.writer.add_scalar(f'{log_label}_loss', loss, self.step)
 
-        if self.rank == 0 and (self.step - self.step % 2) % self.args.log_train_images_interval == 0:
-            # self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.batch_size_per_gpu), self.step)
-            # self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
-            # self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
-            # self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
-            self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.seq_length_lr), self.step)
-            self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
-            self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
-            self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
+        # if self.rank == 0 and (self.step - self.step % 2) % self.args.log_train_images_interval == 0:
+        #     # self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.batch_size_per_gpu), self.step)
+        #     # self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
+        #     # self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
+        #     # self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
+        #     self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.seq_length_lr), self.step)
+        #     self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
+        #     self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
+        #     self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
 
     def load_next_mat_hr_sample(self):
         try:

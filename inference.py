@@ -110,9 +110,9 @@ def convert_video(model,
         if output_composition is not None:
             writer_com = ImageSequenceWriter(output_composition, 'png')
         if output_alpha is not None:
-            writer_pha = ImageSequenceWriter(output_alpha, 'png')
+            writer_pha = ImageSequenceWriter(output_alpha, 'jpg')
         if output_foreground is not None:
-            writer_fgr = ImageSequenceWriter(output_foreground, 'png')
+            writer_fgr = ImageSequenceWriter(output_foreground, 'jpg')
 
     # Inference
     model = model.eval()
@@ -136,7 +136,16 @@ def convert_video(model,
                 #     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
 
                 src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
-                fgr, pha, *rec = model(src, *rec, downsample_ratio)[5:]
+                # fgr, pha, *rec = model(src, *rec, downsample_ratio)[5:]
+                output = model(src, *rec, downsample_ratio)
+                if downsample_ratio == 1.0:
+                    fgr = output['fgr']
+                    pha = output['pha_os1']
+                    rec = output['rec']
+                else:
+                    fgr = output['fgr_lg']
+                    pha = output['pha_lg']
+                    rec = output['rec']
                 # fgr, pha = model(src, downsample_ratio)
 
                 if output_foreground is not None:
