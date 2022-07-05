@@ -55,39 +55,6 @@ class MotionAugmentation:
         if self.static_affine:
             fgrs, phas = self._static_affine(fgrs, phas, scale_ranges=(0.5, 1))
             bgrs = self._static_affine(bgrs, scale_ranges=(1, 1.5))
-
-        # # Gen Mask
-        # low = 0.01
-        # high = 1.0
-        # threshold = random.random() * (high - low) + low
-        # msks = []
-        # for pha in phas:
-        #     msk = np.array(pha.copy())
-        #     _, msk = cv2.threshold(msk, threshold * 255, 255, cv2.THRESH_BINARY)
-        #     msks.append(msk)
-        # for i in range(len(msks)):
-        #     random_num = random.randint(0,3)
-        #     if random_num == 0:
-        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
-        #     elif random_num == 1:
-        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-        #     elif random_num == 2:
-        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
-        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-        #     else:
-        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
-
-        # # Cut Mask
-        # for i in range(len(msks)):
-        #     if random.random() < self.prob_mask:
-        #         h, w = msks[0].shape
-        #         patch_size_h, patch_size_w = random.randint(h // 4, h // 2), random.randint(w // 4, w // 2)
-        #         x1 = random.randint(0, w - patch_size_w)
-        #         y1 = random.randint(0, h - patch_size_h)
-        #         x2 = random.randint(0, w - patch_size_w)
-        #         y2 = random.randint(0, h - patch_size_h)
-        #         msks[i][y1:y1+patch_size_h, x1:x1+patch_size_w] = msks[i][y2:y2+patch_size_h, x2:x2+patch_size_w].copy()
         
         # To tensor
         fgrs = torch.stack([F.to_tensor(fgr) for fgr in fgrs])

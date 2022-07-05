@@ -9,6 +9,8 @@ from .sampling_points import sampling_points, point_sample
 class PointRendRefiner(nn.Module):
     def __init__(self, hidden_channels=16, k=3, beta=0.75):
         super().__init__()
+        # self.mlp_fgr = nn.Conv1d(hidden_channels+3, 3, 1)
+        # self.mlp_pha = nn.Conv1d(hidden_channels+1, 1, 1)
         self.mlp = nn.Conv1d(hidden_channels+4, 4, 1)
         self.k = k
         self.beta = beta
@@ -21,12 +23,43 @@ class PointRendRefiner(nn.Module):
            we use the same strategy during training and inference: the difference between the most
            confident and second most confident class probabilities.
         """
+
+        # while pha.shape[-2:] != src.shape[-2:]:
+        #     fgr = F.interpolate(fgr, scale_factor=2, mode="bilinear", align_corners=True)
+        #     pha = F.interpolate(pha, scale_factor=2, mode="bilinear", align_corners=True)
+
+        #     num_points = (pha.shape[-1] // 8) * (pha.shape[-2] // 8)
+
+        #     points_idx, points = sampling_points(pha, num_points, training=self.training)
+
+        #     coarse_fgr = point_sample(fgr, points, align_corners=False)
+        #     coarse_pha = point_sample(pha, points, align_corners=False)
+        #     fine = point_sample(hid, points, align_corners=False)
+
+        #     feature_representation_fgr = torch.cat([coarse_fgr, fine], dim=1)
+        #     feature_representation_pha = torch.cat([coarse_pha, fine], dim=1)
+
+        #     rend_fgr = self.mlp_fgr(feature_representation_fgr)
+        #     rend_pha = self.mlp_pha(feature_representation_pha)
+
+        #     B, C, H, W = fgr.shape
+        #     points_idx_expand = points_idx.unsqueeze(1).expand(-1, C, -1)
+        #     fgr = (fgr.reshape(B, C, -1)
+        #               .scatter_(2, points_idx_expand, rend_fgr)
+        #               .view(B, C, H, W))
+
+        #     B, C, H, W = pha.shape
+        #     points_idx_expand = points_idx.unsqueeze(1).expand(-1, C, -1)
+        #     pha = (pha.reshape(B, C, -1)
+        #               .scatter_(2, points_idx_expand, rend_pha)
+        #               .view(B, C, H, W))
+
         out = torch.cat([fgr, pha], dim=1)
 
         while out.shape[-2:] != src.shape[-2:]:
             out = F.interpolate(out, scale_factor=2, mode="bilinear", align_corners=True)
 
-            num_points = (out.shape[-1] // 8) * (out.shape[-2] // 16)
+            num_points = (out.shape[-1] // 8) * (out.shape[-2] // 8)
             points_idx, points = sampling_points(out, num_points, training=self.training)
 
             coarse = point_sample(out, points, align_corners=False)

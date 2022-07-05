@@ -188,16 +188,7 @@ class MattingNetwork(nn.Module):
     def get_seg_mask(self, src):
         B, T = src.shape[:2]
         src = src.flatten(0, 1)
-
-        # if self.training:
-        #     msk = self.mask_net(F.interpolate(src, scale_factor=0.5,
-        #                                         mode='bilinear', align_corners=False, recompute_scale_factor=False))
-        #     msk = msk.clamp(0., 1.)
-        #     msk = F.interpolate(msk, scale_factor=2.0,
-        #                         mode='bilinear', align_corners=False, recompute_scale_factor=False)
-        # else:
-        #     msk = self.mask_net(src)
-        #     msk = msk.clamp(0., 1.)
+        
         msk = self.mask_net(F.interpolate(src, scale_factor=0.5,
                                           mode='bilinear', align_corners=False, recompute_scale_factor=False))
         msk = msk.clamp(0., 1.)

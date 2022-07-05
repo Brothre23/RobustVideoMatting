@@ -54,38 +54,44 @@ def sampling_points(mask, N, k=3, beta=0.75, training=True):
     B, _, H, W = mask.shape
     # mask, _ = mask.sort(1, descending=True)
 
-    if not training:
-        H_step, W_step = 1 / H, 1 / W
-        N = min(H * W, N)
-
-        uncertainty_map = -1 * (mask[:, 3] + 1e5 - 0.5)
-        _, idx = uncertainty_map.view(B, -1).topk(N, dim=1)
-
-        points = torch.zeros(B, N, 2, dtype=torch.float, device=device)
-        points[:, :, 0] = W_step / 2.0 + (idx  % W).to(torch.float) * W_step
-        points[:, :, 1] = H_step / 2.0 + (idx // W).to(torch.float) * H_step
-
-        return idx, points
-
-    # Official Comment : point_features.py#92
-    # It is crucial to calculate uncertanty based on the sampled prediction value for the points.
-    # Calculating uncertainties of the coarse predictions first and sampling them for points leads
-    # to worse results. To illustrate the difference: a sampled point between two coarse predictions
-    # with -1 and 1 logits has 0 logit prediction and therefore 0 uncertainty value, however, if one
-    # calculates uncertainties for the coarse predictions first (-1 and -1) and sampe it for the
-    # center point, they will get -1 unceratinty.
     H_step, W_step = 1 / H, 1 / W
     N = min(H * W, N)
 
-    uncertainty_map = -1 * (mask[:, 3] + 1e-5 - 0.5)
+    uncertainty_map = torch.abs(mask[:, 3] - 0.5)
 
-    _, importance_idx = uncertainty_map.view(B, -1).topk(int(beta * N), -1)
-    coverage_idx = torch.randint(low=0, high=H*W, size=(B, N - int(beta * N)), device=device)
-    
-    idx = torch.cat([importance_idx, coverage_idx], dim=1)
+    if not training:
+        _, idx = uncertainty_map.view(B, -1).topk(N, dim=1, largest=False)
+    else:
+        _, importance_idx = uncertainty_map.view(B, -1).topk(int(beta * N), dim=1, largest=False)
+        coverage_idx = torch.randint(low=0, high=H*W, size=(B, N - int(beta * N)), device=device)
+        
+        idx = torch.cat([importance_idx, coverage_idx], dim=1)
 
     points = torch.zeros(B, N, 2, dtype=torch.float, device=device)
     points[:, :, 0] = W_step / 2.0 + (idx  % W).to(torch.float) * W_step
     points[:, :, 1] = H_step / 2.0 + (idx // W).to(torch.float) * H_step
 
     return idx, points
+
+    # # Official Comment : point_features.py#92
+    # # It is crucial to calculate uncertainty based on the sampled prediction value for the points.
+    # # Calculating uncertainties of the coarse predictions first and sampling them for points leads
+    # # to worse results. To illustrate the difference: a sampled point between two coarse predictions
+    # # with -1 and 1 logits has 0 logit prediction and therefore 0 uncertainty value, however, if one
+    # # calculates uncertainties for the coarse predictions first (-1 and -1) and sampe it for the
+    # # center point, they will get -1 uncertainty.
+    # H_step, W_step = 1 / H, 1 / W
+    # N = min(H * W, N)
+
+    # uncertainty_map = torch.abs(mask[:, 3] - 0.5)
+
+    # _, importance_idx = uncertainty_map.view(B, -1).topk(int(beta * N), dim=1, largest=False)
+    # coverage_idx = torch.randint(low=0, high=H*W, size=(B, N - int(beta * N)), device=device)
+    
+    # idx = torch.cat([importance_idx, coverage_idx], dim=1)
+
+    # points = torch.zeros(B, N, 2, dtype=torch.float, device=device)
+    # points[:, :, 0] = W_step / 2.0 + (idx  % W).to(torch.float) * W_step
+    # points[:, :, 1] = H_step / 2.0 + (idx // W).to(torch.float) * H_step
+
+    # return idx, points
