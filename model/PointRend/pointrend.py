@@ -7,12 +7,12 @@ from .sampling_points import sampling_points, point_sample
 
 
 class PointRendRefiner(nn.Module):
-    def __init__(self, hidden_channels=16, k=3, beta=0.75):
+    def __init__(self, hidden_channels=16, beta=0.75):
         super().__init__()
         # self.mlp_fgr = nn.Conv1d(hidden_channels+3, 3, 1)
         # self.mlp_pha = nn.Conv1d(hidden_channels+1, 1, 1)
         self.mlp = nn.Conv1d(hidden_channels+4, 4, 1)
-        self.k = k
+        # self.attent = nn.MultiheadAttention(embed_dim=20, num_heads=1, batch_first=True)
         self.beta = beta
 
     def forward_single_frame(self, src, hid, fgr, pha):
@@ -57,7 +57,7 @@ class PointRendRefiner(nn.Module):
         out = torch.cat([fgr, pha], dim=1)
 
         while out.shape[-2:] != src.shape[-2:]:
-            out = F.interpolate(out, scale_factor=2, mode="bilinear", align_corners=True)
+            out = F.interpolate(out, scale_factor=2.0, mode="bilinear", align_corners=True)
 
             num_points = (out.shape[-1] // 8) * (out.shape[-2] // 8)
             points_idx, points = sampling_points(out, num_points, training=self.training)
@@ -66,6 +66,10 @@ class PointRendRefiner(nn.Module):
             fine = point_sample(hid, points, align_corners=False)
 
             feature_representation = torch.cat([coarse, fine], dim=1)
+
+            # feature_representation = torch.transpose(feature_representation, 1, 2)
+            # attented_feature, _ = self.attent(feature_representation, feature_representation, feature_representation)
+            # attented_feature = torch.transpose(attented_feature, 1, 2)
 
             rend = self.mlp(feature_representation)
 

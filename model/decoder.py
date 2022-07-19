@@ -14,7 +14,7 @@ class RecurrentDecoder(nn.Module):
         self.decode3 = UpsamplingBlock(out_channels[0], in_channels[2], 4, out_channels[1])
         self.decode2 = UpsamplingBlock(out_channels[1], in_channels[1], 4, out_channels[2])
         self.decode1 = UpsamplingBlock(out_channels[2], in_channels[0], 4, out_channels[3])
-        self.decode0 = OutputBlock(out_channels[3], 3, out_channels[4])
+        self.decode0 = OutputBlock(out_channels[3], 4, out_channels[4])
 
         self.project_OS1 = nn.Sequential(
             nn.Conv2d(out_channels[4], 16, kernel_size=3, stride=1, padding=1, bias=False),
@@ -51,33 +51,62 @@ class RecurrentDecoder(nn.Module):
         # s: downsampled source image after average pooling
         # r: output from the previous stage (hidden state)
         if not segmentation_pass:
+            time_series = True if s0.ndim == 5 else False
+
             s1, s2, s3 = self.avgpool(s0)
             x4, r4 = self.decode4(f4, r4)
             x3, r3 = self.decode3(x4, f3, s3, r3)
 
-            B, T = x3.shape[:2]
-            os8 = self.project_OS8(x3.flatten(0, 1))
-            os8 = F.interpolate(os8, scale_factor=8.0, mode='bilinear', align_corners=False)
-            os8 = os8.unflatten(0, (B, T))
+            if time_series:
+                B, T = x3.shape[:2]
+                os8 = self.project_OS8(x3.flatten(0, 1))
+                os8 = F.interpolate(os8, scale_factor=8.0, mode='bilinear', align_corners=False)
+                os8 = os8.unflatten(0, (B, T))
 
-            x2, r2 = self.decode2(x3, f2, s2, r2)
+                x2, r2 = self.decode2(x3, f2, s2, r2)
 
-            B, T = x2.shape[:2]
-            os4 = self.project_OS4(x2.flatten(0, 1))
-            os4 = F.interpolate(os4, scale_factor=4.0, mode='bilinear', align_corners=False)
-            os4 = os4.unflatten(0, (B, T))
+                B, T = x2.shape[:2]
+                os4 = self.project_OS4(x2.flatten(0, 1))
+                os4 = F.interpolate(os4, scale_factor=4.0, mode='bilinear', align_corners=False)
+                os4 = os4.unflatten(0, (B, T))
 
-            x1, r1 = self.decode1(x2, f1, s1, r1)
-            x0 = self.decode0(x1, s0)
+                x1, r1 = self.decode1(x2, f1, s1, r1)
+                x0 = self.decode0(x1, s0)
 
-            B, T = x0.shape[:2]
-            os1 = self.project_OS1(x0.flatten(0, 1))
-            os1 = os1.unflatten(0, (B, T))
-            
-            os8 = os8[:, :, :, :os1.size(3), :os1.size(4)]
-            os4 = os4[:, :, :, :os1.size(3), :os1.size(4)]
+                B, T = x0.shape[:2]
+                os1 = self.project_OS1(x0.flatten(0, 1))
+                os1 = os1.unflatten(0, (B, T))
+                
+                os8 = os8[:, :, :, :os1.size(3), :os1.size(4)]
+                os4 = os4[:, :, :, :os1.size(3), :os1.size(4)]
+            else:
+                B, T = x3.shape[0], 1
+                os8 = self.project_OS8(x3)
+                os8 = F.interpolate(os8, scale_factor=8.0, mode='bilinear', align_corners=False)
 
-            return x0, os1, os4, os8, r1, r2, r3, r4
+                x2, r2 = self.decode2(x3, f2, s2, r2)
+
+                B, T = x2.shape[0], 1
+                os4 = self.project_OS4(x2)
+                os4 = F.interpolate(os4, scale_factor=4.0, mode='bilinear', align_corners=False)
+
+                x1, r1 = self.decode1(x2, f1, s1, r1)
+                x0 = self.decode0(x1, s0)
+
+                B, T = x0.shape[0], 1
+                os1 = self.project_OS1(x0)
+
+                os8 = os8[:, :, :os1.size(2), :os1.size(3)]
+                os4 = os4[:, :, :os1.size(2), :os1.size(3)]                
+
+            output = {
+                'hid':   x0,
+                'os1':  os1,
+                'os4':  os4,
+                'os8':  os8
+            }
+
+            return output, r1, r2, r3, r4
         else:
             s1, s2, s3 = self.avgpool(s0)
             x4, r4 = self.decode4(f4, r4)
@@ -90,62 +119,11 @@ class RecurrentDecoder(nn.Module):
             seg = self.project_seg(x0.flatten(0, 1))
             seg = seg.unflatten(0, (B, T))
 
-            return seg, r1, r2, r3, r4
+            output = {
+                'seg':  seg
+            }
 
-
-class h_sigmoid(nn.Module):
-    def __init__(self, inplace=True):
-        super(h_sigmoid, self).__init__()
-        self.relu = nn.ReLU6(inplace=inplace)
-
-    def forward(self, x):
-        return self.relu(x + 3) / 6
-
-
-class h_swish(nn.Module):
-    def __init__(self, inplace=True):
-        super(h_swish, self).__init__()
-        self.sigmoid = h_sigmoid(inplace=inplace)
-
-    def forward(self, x):
-        return x * self.sigmoid(x)
-
-
-class CoordAtt(nn.Module):
-    def __init__(self, inp, oup, groups=32):
-        super(CoordAtt, self).__init__()
-        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
-        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
-
-        mip = max(8, inp // groups)
-
-        self.conv1 = nn.Conv2d(inp, mip, kernel_size=1, stride=1, padding=0)
-        self.bn1 = nn.BatchNorm2d(mip)
-        self.conv2 = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
-        self.conv3 = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
-        self.relu = h_swish()
-
-    def forward(self, x):
-        identity = x
-        n,c,h,w = x.size()
-        x_h = self.pool_h(x)
-        x_w = self.pool_w(x).permute(0, 1, 3, 2)
-
-        y = torch.cat([x_h, x_w], dim=2)
-        y = self.conv1(y)
-        y = self.bn1(y)
-        y = self.relu(y) 
-        x_h, x_w = torch.split(y, [h, w], dim=2)
-        x_w = x_w.permute(0, 1, 3, 2)
-
-        x_h = self.conv2(x_h).sigmoid()
-        x_w = self.conv3(x_w).sigmoid()
-        x_h = x_h.expand(-1, -1, h, w)
-        x_w = x_w.expand(-1, -1, h, w)
-
-        y = identity * x_w * x_h
-
-        return y
+            return output, r1, r2, r3, r4
     
 
 class AvgPool(nn.Module):
@@ -270,9 +248,9 @@ class OutputBlock(nn.Module):
     def forward_single_frame(self, x, s):
         x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
+        # x = torch.cat([x, s[:, :3, :, :]], dim=1)
         x = torch.cat([x, s], dim=1)
         x = self.conv(x)
-        # x = self.attent(x)
         return x
     
     def forward_time_series(self, x, s):
@@ -281,9 +259,9 @@ class OutputBlock(nn.Module):
         s = s.flatten(0, 1)
         x = self.upsample(x)
         x = x[:, :, :H, :W]
-        x = torch.cat([x, s[:, :3, :, :]], dim=1)
+        # x = torch.cat([x, s[:, :3, :, :]], dim=1)
+        x = torch.cat([x, s], dim=1)
         x = self.conv(x)
-        # x = self.attent(x)
         x = x.unflatten(0, (B, T))
         return x
     

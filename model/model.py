@@ -78,14 +78,22 @@ class MattingNetwork(nn.Module):
         src_sm, msk = self.get_seg_mask(src_sm)
         
         f1, f2, f3, f4 = self.backbone(src_sm)
-        # f1, f2, f3, f4 = self.se[0](f1), self.se[1](f2), self.se[2](f3), self.se[3](f4)
         f4 = self.aspp(f4)
 
         if not segmentation_pass:
-            hid, os1, os4, os8, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, False)
+            output, r1, r2, r3, r4 = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, False)
 
-            fgr_residual, pha_os1 = os1.split([3, 1], dim=-3)
-            fgr = fgr_residual + src_sm[:, :, :3, :, :]
+            hid = output['hid']
+            os1 = output['os1']
+            os4 = output['os4']
+            os8 = output['os8']
+
+            if src_sm.ndim == 5:
+                fgr_residual, pha_os1 = os1.split([3, 1], dim=2)
+                fgr = fgr_residual + src_sm[:, :, :3, :, :]
+            else:
+                fgr_residual, pha_os1 = os1.split([3, 1], dim=1)
+                fgr = fgr_residual + src_sm[:, :3, :, :]
             fgr = fgr.clamp(0., 1.)
 
             pha_os8 = os8.clamp(0., 1.)
@@ -106,48 +114,58 @@ class MattingNetwork(nn.Module):
                 pha = pha.clamp(0., 1.)
 
                 return {
-                    'msk': msk,
-                    'seg': None,
-                    'pha_os1': None,
-                    'pha_os4': None,
-                    'pha_os8': None,
-                    'weight_os1': None,
-                    'weight_os4': None,
-                    'fgr': None,
-                    'pha_lg': pha,
-                    'fgr_lg': fgr,
-                    'rec': rec
+                    'msk':          msk,
+                    'seg':          msk,    # none
+                    'pha_os1':      msk,    # none
+                    'pha_os4':      msk,    # none
+                    'pha_os8':      msk,    # none
+                    'weight_os1':   msk,    # none
+                    'weight_os4':   msk,    # none
+                    'fgr':          msk,    # none
+                    'pha_lg':       pha,
+                    'fgr_lg':       fgr,
+                    'r1':           r1,
+                    'r2':           r2,
+                    'r3':           r3,
+                    'r4':           r4,
                 }
             else:
                 # return [msk, pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
                 return {
-                    'msk': msk,
-                    'seg': None,
-                    'pha_os1': pha_os1,
-                    'pha_os4': pha_os4,
-                    'pha_os8': pha_os8,
-                    'weight_os1': weight_os1,
-                    'weight_os4': weight_os4,
-                    'fgr': fgr,
-                    'pha_lg': None,
-                    'fgr_lg': None,
-                    'rec': rec
+                    'msk':          msk,
+                    'seg':          msk,    # none
+                    'pha_os1':      pha_os1,
+                    'pha_os4':      pha_os4,
+                    'pha_os8':      pha_os8,
+                    'weight_os1':   weight_os1,
+                    'weight_os4':   weight_os4,
+                    'fgr':          fgr,
+                    'pha_lg':       msk,    # none
+                    'fgr_lg':       msk,    # none
+                    'r1':           r1,
+                    'r2':           r2,
+                    'r3':           r3,
+                    'r4':           r4,
                 }
         else:
-            seg, *rec = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, True)
+            output, r1, r2, r3, r4 = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, True)
+            seg = output['seg']
             # return [msk, seg, *rec]
             return {
-                'msk': msk,
-                'seg': seg,
-                'pha_os1': None,
-                'pha_os4': None,
-                'pha_os8': None,
-                'weight_os1': None,
-                'weight_os4': None,
-                'fgr': None,
-                'pha_lg': None,
-                'fgr_lg': None,
-                'rec': rec
+                'msk':              msk,
+                'seg':              seg,
+                'pha_os1':          msk,    # none
+                'pha_os4':          msk,    # none
+                'pha_os8':          msk,    # none
+                'weight_os1':       msk,    # none
+                'weight_os4':       msk,    # none
+                'fgr':              msk,    # none
+                'pha_lg':           msk,    # none
+                'fgr_lg':           msk,    # none
+                'r1':               r1,
+                'r2':               r2,
+                'r3':               r3,
+                'r4':               r4,
             }
 
     def _interpolate(self, x: Tensor, scale_factor: float):
@@ -161,9 +179,15 @@ class MattingNetwork(nn.Module):
                 mode='bilinear', align_corners=False, recompute_scale_factor=False)
         return x
 
-    def get_unknown_mask(self, pred, rand_width):
-        B, T = pred.shape[:2]
-        pred = pred.flatten(0, 1)
+    @torch.jit.ignore
+    def get_unknown_mask(self, pred: Tensor, rand_width: int) -> Tensor:
+        time_series = True if pred.ndim == 5 else False
+
+        if time_series:
+            B, T = pred.shape[:2]
+            pred = pred.flatten(0, 1)
+        else:
+            B, T = pred.shape[0], 1
 
         pred_np = pred.data.cpu().numpy()
         uncertain_area = np.ones_like(pred_np, dtype=np.uint8)
@@ -174,20 +198,29 @@ class MattingNetwork(nn.Module):
             width = np.random.randint(1, rand_width)
         else:
             width = rand_width // 2
+        # width = rand_width // 2
+        # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (width, width))
 
         for i in range(B * T):
             image = uncertain_area[i, 0, :, :]
             image = cv2.dilate(image, self.kernels[width])
+            # image = cv2.dilate(image, kernel)
             uncertain_area[i, 0, :, :] = image
 
         weight = torch.from_numpy(uncertain_area).to(pred.device)
-        weight = weight.unflatten(0, (B, T))
+        if time_series:
+            weight = weight.unflatten(0, (B, T))
 
         return weight
 
     def get_seg_mask(self, src):
-        B, T = src.shape[:2]
-        src = src.flatten(0, 1)
+        time_series = True if src.ndim == 5 else False
+
+        if time_series:
+            B, T = src.shape[:2]
+            src = src.flatten(0, 1)
+        else:
+            B, T = src.shape[0], 1
         
         msk = self.mask_net(F.interpolate(src, scale_factor=0.5,
                                           mode='bilinear', align_corners=False, recompute_scale_factor=False))
@@ -195,8 +228,11 @@ class MattingNetwork(nn.Module):
         msk = F.interpolate(msk, size=(src.size(2), src.size(3)),
                             mode='bilinear', align_corners=False, recompute_scale_factor=False)
 
-        msk = msk.unflatten(0, (B, T))
-        src = src.unflatten(0, (B, T))
-        src = torch.cat((src, msk), dim=2)
+        if time_series:
+            msk = msk.unflatten(0, (B, T))
+            src = src.unflatten(0, (B, T))
+            src = torch.cat((src, msk), dim=2)
+        else:
+            src = torch.cat((src, msk), dim=1)  
 
         return src, msk

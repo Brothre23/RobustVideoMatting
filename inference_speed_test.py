@@ -41,9 +41,16 @@ class InferenceSpeedTest:
         w, h = self.args.resolution
         src = torch.randn((1, 3, h, w), device=self.device, dtype=self.precision)
         with torch.no_grad():
-            rec = None, None, None, None
+            r1, r2, r3, r4 = None, None, None, None
             for _ in tqdm(range(1000)):
-                fgr, pha, *rec = self.model(src, *rec, self.args.downsample_ratio)
+                # fgr, pha, *rec = self.model(src, *rec, self.args.downsample_ratio)
+                output = self.model(src, r1, r2, r3, r4, self.args.downsample_ratio)
+                # fgr = output['fgr']
+                # pha = output['pha_os1']
+                r1 = output['r1']
+                r2 = output['r2']
+                r3 = output['r3']
+                r4 = output['r4']
                 torch.cuda.synchronize()
 
 if __name__ == '__main__':

@@ -80,37 +80,11 @@ class CocoPanopticTrainAugmentation:
         
         # Color jitter
         img = self.jitter(img)
-
-        # # Gen Mask
-        # msk = np.array(seg)
-        # random_num = random.randint(0,3)
-        # if random_num == 0:
-        #     msk = cv2.erode(msk, self.kernels[np.random.randint(1, 30)])
-        # elif random_num == 1:
-        #     msk = cv2.dilate(msk, self.kernels[np.random.randint(1, 30)])
-        # elif random_num == 2:
-        #     msk = cv2.erode(msk, self.kernels[np.random.randint(1, 30)])
-        #     msk = cv2.dilate(msk, self.kernels[np.random.randint(1, 30)])
-        # else:
-        #     msk = cv2.dilate(msk, self.kernels[np.random.randint(1, 30)])
-        #     msk = cv2.erode(msk, self.kernels[np.random.randint(1, 30)])
-
-        # # Cut Mask
-        # if random.random() < 0.25:
-        #     h, w = msk.shape
-        #     patch_size_h, patch_size_w = random.randint(h // 4, h // 2), random.randint(w // 4, w // 2)
-        #     x1 = random.randint(0, w - patch_size_w)
-        #     y1 = random.randint(0, h - patch_size_h)
-        #     x2 = random.randint(0, w - patch_size_w)
-        #     y2 = random.randint(0, h - patch_size_h)
-        #     msk[y1:y1+patch_size_h, x1:x1+patch_size_w] = msk[y2:y2+patch_size_h, x2:x2+patch_size_w].copy()
         
         # To tensor
         img = F.to_tensor(img)
-        # msk = F.to_tensor(msk)
         seg = F.to_tensor(seg)
         
-        # return img, msk, seg
         return img, seg
     
 

@@ -129,23 +129,29 @@ def convert_video(model,
     try:
         with torch.no_grad():
             bar = tqdm(total=len(source), disable=not progress, dynamic_ncols=True)
-            rec = [None] * 4
+            # rec = [None] * 4
+            r1, r2, r3, r4 = None, None, None, None
             for src in reader:
 
                 # if downsample_ratio is None:
                 #     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
 
-                src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
-                # fgr, pha, *rec = model(src, *rec, downsample_ratio)[5:]
-                output = model(src, *rec, downsample_ratio)
+                src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]e
+                output = model(src, r1, r2, r3, r4, downsample_ratio)
                 if downsample_ratio == 1.0:
                     fgr = output['fgr']
                     pha = output['pha_os1']
-                    rec = output['rec']
+                    r1  = output['r1']
+                    r2  = output['r2']
+                    r3  = output['r3']
+                    r4  = output['r4']
                 else:
                     fgr = output['fgr_lg']
                     pha = output['pha_lg']
-                    rec = output['rec']
+                    r1  = output['r1']
+                    r2  = output['r2']
+                    r3  = output['r3']
+                    r4  = output['r4']
                 # fgr, pha = model(src, downsample_ratio)
 
                 if output_foreground is not None:

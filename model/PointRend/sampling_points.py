@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 
-def point_sample(input, point_coords, **kwargs):
+def point_sample(input, point_coords, align_corners: bool):
     """
     From Detectron2, point_features.py#19
 
@@ -24,14 +24,14 @@ def point_sample(input, point_coords, **kwargs):
     if point_coords.dim() == 3:
         add_dim = True
         point_coords = point_coords.unsqueeze(2)
-    output = F.grid_sample(input, 2.0 * point_coords - 1.0, **kwargs)
+    output = F.grid_sample(input, 2.0 * point_coords - 1.0, align_corners=align_corners)
     if add_dim:
         output = output.squeeze(3)
     return output
 
 
 @torch.no_grad()
-def sampling_points(mask, N, k=3, beta=0.75, training=True):
+def sampling_points(mask, N: int, beta: float = 0.75, training: bool = True):
     """
     Follows 3.1. Point Selection for Inference and Training
 

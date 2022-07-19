@@ -100,44 +100,14 @@ class YouTubeVISAugmentation:
         self.kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1,100)]
     
     def __call__(self, imgs, segs):
-        # # Gen Mask
-        # msks = []
-        # for seg in segs:
-        #     msk = np.array(seg.copy())
-        #     msks.append(msk)
-        # for i in range(len(msks)):
-        #     random_num = random.randint(0,3)
-        #     if random_num == 0:
-        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
-        #     elif random_num == 1:
-        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-        #     elif random_num == 2:
-        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
-        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-        #     else:
-        #         msks[i] = cv2.dilate(msks[i], self.kernels[np.random.randint(1, 30)])
-        #         msks[i] = cv2.erode(msks[i], self.kernels[np.random.randint(1, 30)])
-
-        # # Cut Mask
-        # for i in range(len(msks)):
-        #     if random.random() < 0.25:
-        #         h, w = msks[0].shape
-        #         patch_size_h, patch_size_w = random.randint(h // 4, h // 2), random.randint(w // 4, w // 2)
-        #         x1 = random.randint(0, w - patch_size_w)
-        #         y1 = random.randint(0, h - patch_size_h)
-        #         x2 = random.randint(0, w - patch_size_w)
-        #         y2 = random.randint(0, h - patch_size_h)
-        #         msks[i][y1:y1+patch_size_h, x1:x1+patch_size_w] = msks[i][y2:y2+patch_size_h, x2:x2+patch_size_w].copy()
         
         # To tensor
         imgs = torch.stack([F.to_tensor(img) for img in imgs])
-        # msks = torch.stack([F.to_tensor(msk) for msk in msks])
         segs = torch.stack([F.to_tensor(seg) for seg in segs])
         
         # Resize
         params = transforms.RandomResizedCrop.get_params(imgs, scale=(0.8, 1), ratio=(0.9, 1.1))
         imgs = F.resized_crop(imgs, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
-        # msks = F.resized_crop(segs, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
         segs = F.resized_crop(segs, *params, self.size, interpolation=F.InterpolationMode.BILINEAR)
         
         # Color jitter
@@ -150,8 +120,6 @@ class YouTubeVISAugmentation:
         # Horizontal flip
         if random.random() < 0.5:
             imgs = F.hflip(imgs)
-            # msks = F.hflip(segs)
             segs = F.hflip(segs)
         
-        # return imgs, msks, segs
         return imgs, segs

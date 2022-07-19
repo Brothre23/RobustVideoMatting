@@ -42,10 +42,10 @@ def hr_matting_loss(pred_msk, pred_fgr, pred_pha, true_fgr, true_pha, downsample
     loss['pha_coherence'] = coherence_loss(pred_pha, true_pha)
     loss['pha_laplacian'] = laplacian_loss(pred_pha.flatten(0, 1), true_pha.flatten(0, 1))
 
-    true_pha_msk = true_pha.flatten(0, 1)
-    true_pha_msk = F.interpolate(true_pha_msk, scale_factor=downsample_ratio,
-                                 mode='bilinear', align_corners=False, recompute_scale_factor=False)
-    loss['msk'] = (F.l1_loss(pred_msk.flatten(0, 1), true_pha_msk) + laplacian_loss(pred_msk.flatten(0, 1), true_pha_msk)) * 0.25
+    # true_pha_msk = true_pha.flatten(0, 1)
+    # true_pha_msk = F.interpolate(true_pha_msk, scale_factor=downsample_ratio,
+    #                              mode='bilinear', align_corners=False, recompute_scale_factor=False)
+    # loss['msk'] = (F.l1_loss(pred_msk.flatten(0, 1), true_pha_msk) + laplacian_loss(pred_msk.flatten(0, 1), true_pha_msk)) * 0.25
 
     true_fg_msk = true_pha.gt(0)
     pred_fgr = pred_fgr * true_fg_msk
@@ -78,7 +78,7 @@ def segmentation_loss(pred_msk, pred_seg, true_seg):
 # ----------------------------------------------------------------------------- Laplacian Loss
 
 
-def laplacian_loss(pred, true, weight=None, max_levels=3):
+def laplacian_loss(pred, true, weight=None, max_levels=5):
     kernel = gauss_kernel(device=pred.device, dtype=pred.dtype)
     loss = 0
     pred_pyramid = laplacian_pyramid(pred, kernel, max_levels)
