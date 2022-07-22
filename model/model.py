@@ -67,6 +67,7 @@ class MattingNetwork(nn.Module):
                 r2: Optional[Tensor] = None,
                 r3: Optional[Tensor] = None,
                 r4: Optional[Tensor] = None,
+                last: Optional[Tensor] = None,
                 downsample_ratio: float = 1,
                 segmentation_pass: bool = False):
         
@@ -107,11 +108,12 @@ class MattingNetwork(nn.Module):
 
             if downsample_ratio != 1:
                 # fgr_residual, pha = self.refiner(src[:, :, :3, :, :], src_sm[:, :, :3, :, :], fgr_residual, pha_os1, hid)
-                fgr_residual, pha = self.refiner(src, hid, fgr_residual, pha_os1)
+                fgr_residual, pha, last = self.refiner(src, hid, fgr_residual, pha_os1, last)
 
                 fgr = fgr_residual + src
                 fgr = fgr.clamp(0., 1.)
                 pha = pha.clamp(0., 1.)
+                last = last.clamp(0., 1.)
 
                 return {
                     'msk':          msk,
@@ -128,6 +130,7 @@ class MattingNetwork(nn.Module):
                     'r2':           r2,
                     'r3':           r3,
                     'r4':           r4,
+                    'last':         last,
                 }
             else:
                 # return [msk, pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
@@ -146,6 +149,7 @@ class MattingNetwork(nn.Module):
                     'r2':           r2,
                     'r3':           r3,
                     'r4':           r4,
+                    'last':         msk,    # none
                 }
         else:
             output, r1, r2, r3, r4 = self.decoder(src_sm, f1, f2, f3, f4, r1, r2, r3, r4, True)
@@ -166,6 +170,7 @@ class MattingNetwork(nn.Module):
                 'r2':               r2,
                 'r3':               r3,
                 'r4':               r4,
+                'last':             msk     # none
             }
 
     def _interpolate(self, x: Tensor, scale_factor: float):

@@ -65,11 +65,6 @@ def convert_video(model,
     assert output_type in ['video', 'png_sequence'], 'Only support "video" and "png_sequence" output modes.'
     assert seq_chunk >= 1, 'Sequence chunk must be >= 1'
     assert num_workers >= 0, 'Number of workers must be >= 0'
-
-    # model_seg = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True).to('cuda:0')
-    # model_seg.eval()
-
-    # transform_seg = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     
     # Initialize transform
     if input_resize is not None:
@@ -123,35 +118,34 @@ def convert_video(model,
     
     if (output_composition is not None) and (output_type == 'video'):
         bgr = torch.tensor([120, 255, 155], device=device, dtype=dtype).div(255).view(1, 1, 3, 1, 1)
-
-    kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1, 31)]
     
     try:
         with torch.no_grad():
             bar = tqdm(total=len(source), disable=not progress, dynamic_ncols=True)
             # rec = [None] * 4
-            r1, r2, r3, r4 = None, None, None, None
+            r1, r2, r3, r4, last = None, None, None, None, None
             for src in reader:
 
                 # if downsample_ratio is None:
                 #     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
 
-                src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]e
-                output = model(src, r1, r2, r3, r4, downsample_ratio)
+                src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
+                output = model(src, r1, r2, r3, r4, last, downsample_ratio)
                 if downsample_ratio == 1.0:
-                    fgr = output['fgr']
-                    pha = output['pha_os1']
-                    r1  = output['r1']
-                    r2  = output['r2']
-                    r3  = output['r3']
-                    r4  = output['r4']
+                    fgr     = output['fgr']
+                    pha     = output['pha_os1']
+                    r1      = output['r1']
+                    r2      = output['r2']
+                    r3      = output['r3']
+                    r4      = output['r4']
                 else:
-                    fgr = output['fgr_lg']
-                    pha = output['pha_lg']
-                    r1  = output['r1']
-                    r2  = output['r2']
-                    r3  = output['r3']
-                    r4  = output['r4']
+                    fgr     = output['fgr_lg']
+                    pha     = output['pha_lg']
+                    r1      = output['r1']
+                    r2      = output['r2']
+                    r3      = output['r3']
+                    r4      = output['r4']
+                    last    = output['last']
                 # fgr, pha = model(src, downsample_ratio)
 
                 if output_foreground is not None:

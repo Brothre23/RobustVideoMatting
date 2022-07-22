@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import kornia
 
 
 def point_sample(input, point_coords, align_corners: bool):
@@ -31,7 +32,7 @@ def point_sample(input, point_coords, align_corners: bool):
 
 
 @torch.no_grad()
-def sampling_points(mask, N: int, beta: float = 0.75, training: bool = True):
+def sampling_points(mask, last, T: int, N: int, beta: float = 0.75, training: bool = True):
     """
     Follows 3.1. Point Selection for Inference and Training
 
@@ -41,8 +42,8 @@ def sampling_points(mask, N: int, beta: float = 0.75, training: bool = True):
 
     Args:
         mask(Tensor): [B, C, H, W]
+        T(int): Number of frames
         N(int): `During training we sample as many points as there are on a stride 16 feature map of the input`
-        k(int): Over generation multiplier
         beta(float): ratio of importance points
         training(bool): flag
 
@@ -55,7 +56,30 @@ def sampling_points(mask, N: int, beta: float = 0.75, training: bool = True):
     # mask, _ = mask.sort(1, descending=True)
 
     H_step, W_step = 1 / H, 1 / W
-    N = min(H * W, N)
+    # N = min(H * W, N)
+
+    # spatial_map = kornia.filters.laplacian(torch.unsqueeze(mask[:, 3, :, :], dim=1), kernel_size=3)
+    # spatial_map = kornia.filters.laplacian(torch.unsqueeze(mask[:, 3, :, :], dim=1), kernel_size=3)
+    # uncertainty_map = torch.squeeze(spatial_map)
+
+    # if T != -1:
+    #     temporal_map = torch.empty((B, H, W), device=device)
+
+    #     if training:
+    #         for i in range(B//T):
+    #             temporal_map[i * T:, :, :] = torch.zeros((1, H, W), device=device)
+    #             temporal_map[(i * T) + 1:(i + 1) * T, :, :] = mask[(i * T) + 1:(i + 1) * T, 3, :, :] - mask[(i * T):(i + 1) * T - 1, 3, :, :]
+    #     else:
+    #         if last is None:
+    #             last = torch.zeros((1, 1, H, W), device=device)
+    #         else:
+    #             last = F.interpolate(last, size=(H, W), mode='bilinear', align_corners=False, recompute_scale_factor=False)
+    #         temporal_map[0, :, :] = mask[0, 3, :, :] - torch.squeeze(last)
+    #         temporal_map[1:, :, :] = mask[1:, 3, :, :] - mask[:-1, 3, :, :]
+
+    #     uncertainty_map = torch.squeeze(spatial_map, dim=1) + torch.abs(temporal_map)
+    # else:
+    #     uncertainty_map = torch.squeeze(spatial_map, dim=1)
 
     uncertainty_map = torch.abs(mask[:, 3] - 0.5)
 
