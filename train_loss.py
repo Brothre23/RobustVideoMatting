@@ -7,7 +7,7 @@ import cv2
 # --------------------------------------------------------------------------------- Train Loss
 
 
-def lr_matting_loss(pred_msk, pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha):
+def lr_matting_loss(pred_msk, pred_fgr, pred_err, pred_pha_os1, pred_pha_os4, pred_pha_os8, weight_os1, weight_os4, true_fgr, true_pha):
     loss = {}
     loss['total'] = 0.0
 
@@ -20,6 +20,7 @@ def lr_matting_loss(pred_msk, pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8
     loss['pha_laplacian'] = (laplacian_loss(pred_pha_os1.flatten(0, 1), true_pha.flatten(0, 1), weight_os1.flatten(0, 1)) * 3 + \
                              laplacian_loss(pred_pha_os4.flatten(0, 1), true_pha.flatten(0, 1), weight_os4.flatten(0, 1)) * 2 + \
                              laplacian_loss(pred_pha_os8.flatten(0, 1), true_pha.flatten(0, 1)) * 1) / 6
+    loss['err'] = F.mse_loss(pred_err, torch.abs(pred_pha_os1.detach() - true_pha)) * 2
     loss['msk'] = (F.l1_loss(pred_msk.flatten(0, 1), true_pha.flatten(0, 1)) + laplacian_loss(pred_msk.flatten(0, 1), true_pha.flatten(0, 1))) * 0.25
 
     true_fg_msk = true_pha.gt(0)

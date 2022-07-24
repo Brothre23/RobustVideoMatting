@@ -17,6 +17,7 @@ from .deep_guided_filter import DeepGuidedFilterRefiner
 from .PointRend.pointrend import PointRendRefiner
 
 import cv2
+import kornia
 from torch import distributed as dist
 import segmentation_models_pytorch as smp
 from .masknet import MaskNet
@@ -29,7 +30,7 @@ class MattingNetwork(nn.Module):
         super().__init__()
         assert variant in ['mobilenetv3', 'shufflenetv2', 'resnet50']
         assert refiner in ['fast_guided_filter', 'deep_guided_filter', 'point_rend']
-        
+
         if variant == 'mobilenetv3':
             self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
             self.aspp = LRASPP(960, 128)
@@ -45,8 +46,9 @@ class MattingNetwork(nn.Module):
 
         # self.project_mat = Projection(16, 4)
         # self.project_seg = Projection(16, 1)
+        # self.kernels = [None] + [torch.from_numpy(cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))).to(device) * 1.0 for size in range(1,30)]
         self.kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1,30)]
-        # self.mask_net = smp.UnetPlusPlus(
+        # self.mask_net = smp.UnetPlusPlus(rr
         #                     encoder_name='timm-mobilenetv3_large_100',
         #                     encoder_weights='imagenet',
         #                     in_channels=3,
@@ -89,16 +91,17 @@ class MattingNetwork(nn.Module):
             os8 = output['os8']
 
             if src_sm.ndim == 5:
-                fgr_residual, pha_os1 = os1.split([3, 1], dim=2)
+                fgr_residual, pha_os1, err = os1.split([3, 1, 1], dim=2)
                 fgr = fgr_residual + src_sm[:, :, :3, :, :]
             else:
-                fgr_residual, pha_os1 = os1.split([3, 1], dim=1)
+                fgr_residual, pha_os1, err = os1.split([3, 1], dim=1)
                 fgr = fgr_residual + src_sm[:, :3, :, :]
+            
             fgr = fgr.clamp(0., 1.)
-
             pha_os8 = os8.clamp(0., 1.)
             pha_os4 = os4.clamp(0., 1.)
             pha_os1 = pha_os1.clamp(0., 1.)
+            err = err.clamp(0., 1.)
 
             weight_os4 = self.get_unknown_mask(pha_os8, 30)
             pha_os4[weight_os4==0] = pha_os8[weight_os4==0]
@@ -107,7 +110,7 @@ class MattingNetwork(nn.Module):
 
             if downsample_ratio != 1:
                 # fgr_residual, pha = self.refiner(src[:, :, :3, :, :], src_sm[:, :, :3, :, :], fgr_residual, pha_os1, hid)
-                fgr_residual, pha = self.refiner(src, hid, fgr_residual, pha_os1)
+                fgr_residual, pha = self.refiner(src, hid, fgr_residual, pha_os1, err)
 
                 fgr = fgr_residual + src
                 fgr = fgr.clamp(0., 1.)
@@ -115,13 +118,14 @@ class MattingNetwork(nn.Module):
 
                 return {
                     'msk':          msk,
-                    'seg':          msk,    # none
-                    'pha_os1':      msk,    # none
-                    'pha_os4':      msk,    # none
-                    'pha_os8':      msk,    # none
-                    'weight_os1':   msk,    # none
-                    'weight_os4':   msk,    # none
-                    'fgr':          msk,    # none
+                    'seg':          msk,        # none
+                    'err':          msk,        # none
+                    'pha_os1':      msk,        # none
+                    'pha_os4':      msk,        # none
+                    'pha_os8':      msk,        # none
+                    'weight_os1':   msk,        # none
+                    'weight_os4':   msk,        # none
+                    'fgr':          msk,        # none
                     'pha_lg':       pha,
                     'fgr_lg':       fgr,
                     'r1':           r1,
@@ -133,15 +137,16 @@ class MattingNetwork(nn.Module):
                 # return [msk, pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
                 return {
                     'msk':          msk,
-                    'seg':          msk,    # none
+                    'seg':          msk,        # none
+                    'err':          err,
                     'pha_os1':      pha_os1,
                     'pha_os4':      pha_os4,
                     'pha_os8':      pha_os8,
                     'weight_os1':   weight_os1,
                     'weight_os4':   weight_os4,
                     'fgr':          fgr,
-                    'pha_lg':       msk,    # none
-                    'fgr_lg':       msk,    # none
+                    'pha_lg':       msk,        # none
+                    'fgr_lg':       msk,        # none
                     'r1':           r1,
                     'r2':           r2,
                     'r3':           r3,
@@ -154,14 +159,15 @@ class MattingNetwork(nn.Module):
             return {
                 'msk':              msk,
                 'seg':              seg,
-                'pha_os1':          msk,    # none
-                'pha_os4':          msk,    # none
-                'pha_os8':          msk,    # none
-                'weight_os1':       msk,    # none
-                'weight_os4':       msk,    # none
-                'fgr':              msk,    # none
-                'pha_lg':           msk,    # none
-                'fgr_lg':           msk,    # none
+                'err':              msk,        # none
+                'pha_os1':          msk,        # none
+                'pha_os4':          msk,        # none
+                'pha_os8':          msk,        # none
+                'weight_os1':       msk,        # none
+                'weight_os4':       msk,        # none
+                'fgr':              msk,        # none
+                'pha_lg':           msk,        # none
+                'fgr_lg':           msk,        # none
                 'r1':               r1,
                 'r2':               r2,
                 'r3':               r3,
@@ -198,13 +204,10 @@ class MattingNetwork(nn.Module):
             width = np.random.randint(1, rand_width)
         else:
             width = rand_width // 2
-        # width = rand_width // 2
-        # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (width, width))
 
         for i in range(B * T):
             image = uncertain_area[i, 0, :, :]
             image = cv2.dilate(image, self.kernels[width])
-            # image = cv2.dilate(image, kernel)
             uncertain_area[i, 0, :, :] = image
 
         weight = torch.from_numpy(uncertain_area).to(pred.device)
@@ -212,6 +215,31 @@ class MattingNetwork(nn.Module):
             weight = weight.unflatten(0, (B, T))
 
         return weight
+
+    # def get_unknown_mask(self, pred: Tensor, rand_width: int) -> Tensor:
+    #     time_series = True if pred.ndim == 5 else False
+
+    #     if time_series:
+    #         B, T = pred.shape[:2]
+    #         pred = pred.flatten(0, 1)
+    #     else:
+    #         B, T = pred.shape[0], 1
+
+    #     uncertain_area = torch.ones_like(pred)
+    #     uncertain_area[pred == 1.0] = 0.0
+    #     uncertain_area[pred == 0.0] = 0.0
+
+    #     if self.training:
+    #         width = torch.randint(1, rand_width, (1, ))
+    #     else:
+    #         width = rand_width // 2
+
+    #     uncertain_area = kornia.morphology.dilation(uncertain_area, self.kernels[width])
+
+    #     if time_series:
+    #         uncertain_area = uncertain_area.unflatten(0, (B, T))
+
+    #     return uncertain_area
 
     def get_seg_mask(self, src):
         time_series = True if src.ndim == 5 else False

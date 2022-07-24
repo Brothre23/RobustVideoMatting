@@ -1,5 +1,7 @@
+from distutils.log import error
 import torch
 import torch.nn.functional as F
+import kornia
 
 
 def point_sample(input, point_coords, align_corners: bool):
@@ -31,7 +33,7 @@ def point_sample(input, point_coords, align_corners: bool):
 
 
 @torch.no_grad()
-def sampling_points(mask, N: int, beta: float = 0.75, training: bool = True):
+def sampling_points(mask, error_map, kernel, N: int, beta: float = 0.75, training: bool = True):
     """
     Follows 3.1. Point Selection for Inference and Training
 
@@ -57,7 +59,9 @@ def sampling_points(mask, N: int, beta: float = 0.75, training: bool = True):
     H_step, W_step = 1 / H, 1 / W
     N = min(H * W, N)
 
-    uncertainty_map = torch.abs(mask[:, 3] - 0.5)
+    error_map = kornia.morphology.dilation(error_map, kernel)
+    uncertainty_map = torch.squeeze(error_map, dim=1)
+    # uncertainty_map = torch.abs(mask[:, 3] - 0.5)
 
     if not training:
         _, idx = uncertainty_map.view(B, -1).topk(N, dim=1, largest=False)

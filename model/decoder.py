@@ -20,7 +20,7 @@ class RecurrentDecoder(nn.Module):
             nn.Conv2d(out_channels[4], 16, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
-            nn.Conv2d(16, 4, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(16, 5, kernel_size=3, stride=1, padding=1),
         )
         self.project_OS4 = nn.Sequential(
             nn.Conv2d(out_channels[2], 16, kernel_size=3, stride=1, padding=1, bias=False),
