@@ -14,7 +14,7 @@ class RecurrentDecoder(nn.Module):
         self.decode3 = UpsamplingBlock(out_channels[0], in_channels[2], 4, out_channels[1])
         self.decode2 = UpsamplingBlock(out_channels[1], in_channels[1], 4, out_channels[2])
         self.decode1 = UpsamplingBlock(out_channels[2], in_channels[0], 4, out_channels[3])
-        self.decode0 = OutputBlock(out_channels[3], 4, out_channels[4])
+        self.decode0 = OutputBlock(out_channels[3], 3, out_channels[4])
 
         self.project_OS1 = nn.Sequential(
             nn.Conv2d(out_channels[4], 16, kernel_size=3, stride=1, padding=1, bias=False),
@@ -248,8 +248,8 @@ class OutputBlock(nn.Module):
     def forward_single_frame(self, x, s):
         x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
-        # x = torch.cat([x, s[:, :3, :, :]], dim=1)
-        x = torch.cat([x, s], dim=1)
+        x = torch.cat([x, s[:, :3, :, :]], dim=1)
+        # x = torch.cat([x, s], dim=1)
         x = self.conv(x)
         return x
     
@@ -259,8 +259,8 @@ class OutputBlock(nn.Module):
         s = s.flatten(0, 1)
         x = self.upsample(x)
         x = x[:, :, :H, :W]
-        # x = torch.cat([x, s[:, :3, :, :]], dim=1)
-        x = torch.cat([x, s], dim=1)
+        x = torch.cat([x, s[:, :3, :, :]], dim=1)
+        # x = torch.cat([x, s], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
         return x

@@ -58,35 +58,33 @@ def sampling_points(mask, last, T: int, N: int, beta: float = 0.75, training: bo
     H_step, W_step = 1 / H, 1 / W
     # N = min(H * W, N)
 
-    # spatial_map = kornia.filters.laplacian(torch.unsqueeze(mask[:, 3, :, :], dim=1), kernel_size=3)
-    # spatial_map = kornia.filters.laplacian(torch.unsqueeze(mask[:, 3, :, :], dim=1), kernel_size=3)
-    # uncertainty_map = torch.squeeze(spatial_map)
+    spatial_map = kornia.filters.laplacian(torch.unsqueeze(mask[:, 3, :, :], dim=1), kernel_size=3)
 
-    # if T != -1:
-    #     temporal_map = torch.empty((B, H, W), device=device)
+    if T != -1:
+        temporal_map = torch.empty((B, H, W), device=device)
 
-    #     if training:
-    #         for i in range(B//T):
-    #             temporal_map[i * T:, :, :] = torch.zeros((1, H, W), device=device)
-    #             temporal_map[(i * T) + 1:(i + 1) * T, :, :] = mask[(i * T) + 1:(i + 1) * T, 3, :, :] - mask[(i * T):(i + 1) * T - 1, 3, :, :]
-    #     else:
-    #         if last is None:
-    #             last = torch.zeros((1, 1, H, W), device=device)
-    #         else:
-    #             last = F.interpolate(last, size=(H, W), mode='bilinear', align_corners=False, recompute_scale_factor=False)
-    #         temporal_map[0, :, :] = mask[0, 3, :, :] - torch.squeeze(last)
-    #         temporal_map[1:, :, :] = mask[1:, 3, :, :] - mask[:-1, 3, :, :]
+        if training:
+            for i in range(B//T):
+                temporal_map[i * T:, :, :] = torch.zeros((1, H, W), device=device)
+                temporal_map[(i * T) + 1:(i + 1) * T, :, :] = mask[(i * T) + 1:(i + 1) * T, 3, :, :] - mask[(i * T):(i + 1) * T - 1, 3, :, :]
+        else:
+            if last is None:
+                last = torch.zeros((1, 1, H, W), device=device)
+            else:
+                last = F.interpolate(last, size=(H, W), mode='bilinear', align_corners=False, recompute_scale_factor=False)
+            temporal_map[0, :, :] = mask[0, 3, :, :] - torch.squeeze(last)
+            temporal_map[1:, :, :] = mask[1:, 3, :, :] - mask[:-1, 3, :, :]
 
-    #     uncertainty_map = torch.squeeze(spatial_map, dim=1) + torch.abs(temporal_map)
-    # else:
-    #     uncertainty_map = torch.squeeze(spatial_map, dim=1)
+        uncertainty_map = torch.squeeze(spatial_map, dim=1) + torch.abs(temporal_map)
+    else:
+        uncertainty_map = torch.squeeze(spatial_map, dim=1)
 
-    uncertainty_map = torch.abs(mask[:, 3] - 0.5)
+    # uncertainty_map = torch.abs(mask[:, 3] - 0.5)
 
     if not training:
-        _, idx = uncertainty_map.view(B, -1).topk(N, dim=1, largest=False)
+        _, idx = uncertainty_map.view(B, -1).topk(N, dim=1, largest=True)
     else:
-        _, importance_idx = uncertainty_map.view(B, -1).topk(int(beta * N), dim=1, largest=False)
+        _, importance_idx = uncertainty_map.view(B, -1).topk(int(beta * N), dim=1, largest=True)
         coverage_idx = torch.randint(low=0, high=H*W, size=(B, N - int(beta * N)), device=device)
         
         idx = torch.cat([importance_idx, coverage_idx], dim=1)
