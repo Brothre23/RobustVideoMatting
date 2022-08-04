@@ -29,21 +29,21 @@ class PointRendRefiner(nn.Module):
         while out.shape[-2:] != src.shape[-2:]:
             out = F.interpolate(out, scale_factor=2.0, mode="bilinear", align_corners=True)
 
-            # num_points = (out.shape[-1] // 8) * (out.shape[-2] // 8)
-            # points_idx, points = sampling_points(out, last, T, num_points, training=self.training)
+            num_points = (out.shape[-1] // 8) * (out.shape[-2] // 8)
+            points_idx, points = sampling_points(out, last, T, num_points, training=self.training)
 
-            # coarse = point_sample(out, points, align_corners=False)
-            # fine = point_sample(hid, points, align_corners=False)
+            coarse = point_sample(out, points, align_corners=False)
+            fine = point_sample(hid, points, align_corners=False)
 
-            # feature_representation = torch.cat([coarse, fine], dim=1)
+            feature_representation = torch.cat([coarse, fine], dim=1)
 
-            # rend = self.mlp(feature_representation)
+            rend = self.mlp(feature_representation)
 
-            # B, C, H, W = out.shape
-            # points_idx = points_idx.unsqueeze(1).expand(-1, C, -1)
-            # out = (out.reshape(B, C, -1)
-            #           .scatter_(2, points_idx, rend)
-            #           .view(B, C, H, W))
+            B, C, H, W = out.shape
+            points_idx = points_idx.unsqueeze(1).expand(-1, C, -1)
+            out = (out.reshape(B, C, -1)
+                      .scatter_(2, points_idx, rend)
+                      .view(B, C, H, W))
 
         fgr, pha = out.split([3, 1], dim=1)
 
