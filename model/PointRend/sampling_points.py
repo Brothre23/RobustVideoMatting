@@ -64,9 +64,9 @@ def sampling_points(mask, error_map, kernel, N: int, beta: float = 0.75, trainin
     # uncertainty_map = torch.abs(mask[:, 3] - 0.5)
 
     if not training:
-        _, idx = uncertainty_map.view(B, -1).topk(N, dim=1, largest=False)
+        _, idx = uncertainty_map.view(B, -1).topk(N, dim=1, largest=True)
     else:
-        _, importance_idx = uncertainty_map.view(B, -1).topk(int(beta * N), dim=1, largest=False)
+        _, importance_idx = uncertainty_map.view(B, -1).topk(int(beta * N), dim=1, largest=True)
         coverage_idx = torch.randint(low=0, high=H*W, size=(B, N - int(beta * N)), device=device)
         
         idx = torch.cat([importance_idx, coverage_idx], dim=1)

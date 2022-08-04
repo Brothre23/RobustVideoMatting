@@ -37,8 +37,6 @@ class MotionAugmentation:
         self.prob_mask = prob_mask
         self.static_affine = static_affine
         self.aspect_ratio_range = aspect_ratio_range
-
-        self.kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1, 30)]
         
     def __call__(self, fgrs, phas, bgrs):
         # Foreground affine
