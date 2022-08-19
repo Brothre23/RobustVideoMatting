@@ -3,7 +3,6 @@ from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from typing import Tuple, Optional
-# from .D3D.modules.deform_conv import *
 
 class RecurrentDecoder(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -14,7 +13,7 @@ class RecurrentDecoder(nn.Module):
         self.decode3 = UpsamplingBlock(out_channels[0], in_channels[2], 4, out_channels[1])
         self.decode2 = UpsamplingBlock(out_channels[1], in_channels[1], 4, out_channels[2])
         self.decode1 = UpsamplingBlock(out_channels[2], in_channels[0], 4, out_channels[3])
-        self.decode0 = OutputBlock(out_channels[3], 4, out_channels[4])
+        self.decode0 = OutputBlock(out_channels[3], 3, out_channels[4])
 
         self.project_OS1 = nn.Sequential(
             nn.Conv2d(out_channels[4], 16, kernel_size=3, stride=1, padding=1, bias=False),
@@ -80,20 +79,17 @@ class RecurrentDecoder(nn.Module):
                 os8 = os8[:, :, :, :os1.size(3), :os1.size(4)]
                 os4 = os4[:, :, :, :os1.size(3), :os1.size(4)]
             else:
-                B, T = x3.shape[0], 1
                 os8 = self.project_OS8(x3)
                 os8 = F.interpolate(os8, scale_factor=8.0, mode='bilinear', align_corners=False)
 
                 x2, r2 = self.decode2(x3, f2, s2, r2)
 
-                B, T = x2.shape[0], 1
                 os4 = self.project_OS4(x2)
                 os4 = F.interpolate(os4, scale_factor=4.0, mode='bilinear', align_corners=False)
 
                 x1, r1 = self.decode1(x2, f1, s1, r1)
                 x0 = self.decode0(x1, s0)
 
-                B, T = x0.shape[0], 1
                 os1 = self.project_OS1(x0)
 
                 os8 = os8[:, :, :os1.size(2), :os1.size(3)]
@@ -248,8 +244,8 @@ class OutputBlock(nn.Module):
     def forward_single_frame(self, x, s):
         x = self.upsample(x)
         x = x[:, :, :s.size(2), :s.size(3)]
-        # x = torch.cat([x, s[:, :3, :, :]], dim=1)
-        x = torch.cat([x, s], dim=1)
+        x = torch.cat([x, s[:, :3, :, :]], dim=1)
+        # x = torch.cat([x, s], dim=1)
         x = self.conv(x)
         return x
     
@@ -259,8 +255,8 @@ class OutputBlock(nn.Module):
         s = s.flatten(0, 1)
         x = self.upsample(x)
         x = x[:, :, :H, :W]
-        # x = torch.cat([x, s[:, :3, :, :]], dim=1)
-        x = torch.cat([x, s], dim=1)
+        x = torch.cat([x, s[:, :3, :, :]], dim=1)
+        # x = torch.cat([x, s], dim=1)
         x = self.conv(x)
         x = x.unflatten(0, (B, T))
         return x

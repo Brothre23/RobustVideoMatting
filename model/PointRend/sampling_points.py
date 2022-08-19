@@ -58,6 +58,7 @@ def sampling_points(mask, N: int, beta: float = 0.75, training: bool = True):
     N = min(H * W, N)
 
     uncertainty_map = torch.abs(mask[:, 3] - 0.5)
+    # uncertainty_map = torch.abs(mask[:, 3] - threshold)
 
     if not training:
         _, idx = uncertainty_map.view(B, -1).topk(N, dim=1, largest=False)

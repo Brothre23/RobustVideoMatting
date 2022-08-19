@@ -24,35 +24,8 @@ class PointRendRefiner(nn.Module):
            confident and second most confident class probabilities.
         """
 
-        # while pha.shape[-2:] != src.shape[-2:]:
-        #     fgr = F.interpolate(fgr, scale_factor=2, mode="bilinear", align_corners=True)
-        #     pha = F.interpolate(pha, scale_factor=2, mode="bilinear", align_corners=True)
-
-        #     num_points = (pha.shape[-1] // 8) * (pha.shape[-2] // 8)
-
-        #     points_idx, points = sampling_points(pha, num_points, training=self.training)
-
-        #     coarse_fgr = point_sample(fgr, points, align_corners=False)
-        #     coarse_pha = point_sample(pha, points, align_corners=False)
-        #     fine = point_sample(hid, points, align_corners=False)
-
-        #     feature_representation_fgr = torch.cat([coarse_fgr, fine], dim=1)
-        #     feature_representation_pha = torch.cat([coarse_pha, fine], dim=1)
-
-        #     rend_fgr = self.mlp_fgr(feature_representation_fgr)
-        #     rend_pha = self.mlp_pha(feature_representation_pha)
-
-        #     B, C, H, W = fgr.shape
-        #     points_idx_expand = points_idx.unsqueeze(1).expand(-1, C, -1)
-        #     fgr = (fgr.reshape(B, C, -1)
-        #               .scatter_(2, points_idx_expand, rend_fgr)
-        #               .view(B, C, H, W))
-
-        #     B, C, H, W = pha.shape
-        #     points_idx_expand = points_idx.unsqueeze(1).expand(-1, C, -1)
-        #     pha = (pha.reshape(B, C, -1)
-        #               .scatter_(2, points_idx_expand, rend_pha)
-        #               .view(B, C, H, W))
+        # frequency = torch.bincount((pha.flatten() * 255).int())
+        # threshold = torch.argmin(frequency).float() / 255.0
 
         out = torch.cat([fgr, pha], dim=1)
 
@@ -66,10 +39,6 @@ class PointRendRefiner(nn.Module):
             fine = point_sample(hid, points, align_corners=False)
 
             feature_representation = torch.cat([coarse, fine], dim=1)
-
-            # feature_representation = torch.transpose(feature_representation, 1, 2)
-            # attented_feature, _ = self.attent(feature_representation, feature_representation, feature_representation)
-            # attented_feature = torch.transpose(attented_feature, 1, 2)
 
             rend = self.mlp(feature_representation)
 
@@ -100,53 +69,3 @@ class PointRendRefiner(nn.Module):
             return self.forward_time_series(src, hid, fgr, pha)
         else:
             return self.forward_single_frame(src, hid, fgr, pha)
-
-    # def forward(self, x, res2, out):
-    #     """
-    #     1. Fine-grained features are interpolated from res2 for DeeplabV3
-    #     2. During training we sample as many points as there are on a stride 16 feature map of the input
-    #     3. To measure prediction uncertainty
-    #        we use the same strategy during training and inference: the difference between the most
-    #        confident and second most confident class probabilities.
-    #     """
-    #     if not self.training:
-    #         return self.inference(x, res2, out)
-
-    #     points = sampling_points(out, x.shape[-1] // 16, self.k, self.beta)
-
-    #     coarse = point_sample(out, points, align_corners=False)
-    #     fine = point_sample(res2, points, align_corners=False)
-
-    #     feature_representation = torch.cat([coarse, fine], dim=1)
-
-    #     rend = self.mlp(feature_representation)
-
-    #     return {"rend": rend, "points": points}
-
-    # @torch.no_grad()
-    # def inference(self, x, res2, out):
-    #     """
-    #     During inference, subdivision uses N=8096
-    #     (i.e., the number of points in the stride 16 map of a 1024×2048 image)
-    #     """
-    #     num_points = 8096
-
-    #     while out.shape[-1] != x.shape[-1]:
-    #         out = F.interpolate(out, scale_factor=2, mode="bilinear", align_corners=True)
-
-    #         points_idx, points = sampling_points(out, num_points, training=self.training)
-
-    #         coarse = point_sample(out, points, align_corners=False)
-    #         fine = point_sample(res2, points, align_corners=False)
-
-    #         feature_representation = torch.cat([coarse, fine], dim=1)
-
-    #         rend = self.mlp(feature_representation)
-
-    #         B, C, H, W = out.shape
-    #         points_idx = points_idx.unsqueeze(1).expand(-1, C, -1)
-    #         out = (out.reshape(B, C, -1)
-    #                   .scatter_(2, points_idx, rend)
-    #                   .view(B, C, H, W))
-
-    #     return {"fine": out}

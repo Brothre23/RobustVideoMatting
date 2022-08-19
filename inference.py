@@ -31,6 +31,7 @@ def convert_video(model,
                   input_resize: Optional[Tuple[int, int]] = None,
                   downsample_ratio: Optional[float] = None,
                   output_type: str = 'video',
+                  output_source: Optional[str] = None,
                   output_composition: Optional[str] = None,
                   output_alpha: Optional[str] = None,
                   output_foreground: Optional[str] = None,
@@ -65,11 +66,6 @@ def convert_video(model,
     assert output_type in ['video', 'png_sequence'], 'Only support "video" and "png_sequence" output modes.'
     assert seq_chunk >= 1, 'Sequence chunk must be >= 1'
     assert num_workers >= 0, 'Number of workers must be >= 0'
-
-    # model_seg = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True).to('cuda:0')
-    # model_seg.eval()
-
-    # transform_seg = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     
     # Initialize transform
     if input_resize is not None:
@@ -113,6 +109,8 @@ def convert_video(model,
             writer_pha = ImageSequenceWriter(output_alpha, 'jpg')
         if output_foreground is not None:
             writer_fgr = ImageSequenceWriter(output_foreground, 'jpg')
+        if output_source is not None:
+            writer_src = ImageSequenceWriter(output_source, 'jpg')
 
     # Inference
     model = model.eval()
@@ -121,10 +119,11 @@ def convert_video(model,
         dtype = param.dtype
         device = param.device
     
-    if (output_composition is not None) and (output_type == 'video'):
+    # if (output_composition is not None) and (output_type == 'video'):
+    if (output_composition is not None):
         bgr = torch.tensor([120, 255, 155], device=device, dtype=dtype).div(255).view(1, 1, 3, 1, 1)
 
-    kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1, 31)]
+    # kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1, 31)]
     
     try:
         with torch.no_grad():
@@ -136,7 +135,7 @@ def convert_video(model,
                 # if downsample_ratio is None:
                 #     downsample_ratio = auto_downsample_ratio(*src.shape[2:])
 
-                src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]e
+                src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
                 output = model(src, r1, r2, r3, r4, downsample_ratio)
                 if downsample_ratio == 1.0:
                     fgr = output['fgr']
@@ -159,12 +158,15 @@ def convert_video(model,
                 if output_alpha is not None:
                     writer_pha.write(pha[0])
                 if output_composition is not None:
-                    if output_type == 'video':
-                        com = fgr * pha + bgr * (1 - pha)
-                    else:
-                        fgr = fgr * pha.gt(0)
-                        com = torch.cat((fgr, pha), dim=-3)
+                    com = fgr * pha + bgr * (1 - pha)
+                    # if output_type == 'video':
+                    #     com = fgr * pha + bgr * (1 - pha)
+                    # else:
+                    #     fgr = fgr * pha.gt(0)
+                    #     com = torch.cat((fgr, pha), dim=-3)
                     writer_com.write(com[0])
+                if output_source is not None:
+                    writer_src.write(src[0])
                 
                 bar.update(src.size(1))
 
@@ -189,8 +191,8 @@ class Converter:
     def __init__(self, variant: str, checkpoint: str, device: str):
         self.model = MattingNetwork(variant).eval().to(device)
         self.model.load_state_dict(torch.load(checkpoint, map_location=device)['model'])
-        # self.model = torch.jit.script(self.model)
-        # self.model = torch.jit.freeze(self.model)
+        self.model = torch.jit.script(self.model)
+        self.model = torch.jit.freeze(self.model)
         self.device = device
     
     def convert(self, *args, **kwargs):
@@ -207,6 +209,7 @@ if __name__ == '__main__':
     parser.add_argument('--input-source', type=str, required=True)
     parser.add_argument('--input-resize', type=int, default=None, nargs=2)
     parser.add_argument('--downsample-ratio', type=float)
+    parser.add_argument('--output-source', type=str)
     parser.add_argument('--output-composition', type=str)
     parser.add_argument('--output-alpha', type=str)
     parser.add_argument('--output-foreground', type=str)
@@ -223,6 +226,7 @@ if __name__ == '__main__':
         input_resize=args.input_resize,
         downsample_ratio=args.downsample_ratio,
         output_type=args.output_type,
+        output_source=args.output_source,
         output_composition=args.output_composition,
         output_alpha=args.output_alpha,
         output_foreground=args.output_foreground,

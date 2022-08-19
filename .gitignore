@@ -7,3 +7,4 @@ model/D3D/D3D.egg-info
 model/D3D/dist
 *.pth
 token.txt
+*.sh

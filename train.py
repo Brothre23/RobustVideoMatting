@@ -285,7 +285,7 @@ class Trainer:
                 shuffle=True)
             self.dataloader_hr_train = DataLoader(
                 dataset=self.dataset_hr_train,
-                batch_size=self.args.batch_size_per_gpu // 2   ,
+                batch_size=self.args.batch_size_per_gpu // 2,
                 num_workers=self.args.num_workers,
                 sampler=self.datasampler_hr_train,
                 pin_memory=True)
@@ -424,10 +424,8 @@ class Trainer:
                 pred_fgr = output['fgr_lg']
                 pred_pha = output['pha_lg']
                 loss = hr_matting_loss(
-                    pred_msk,
                     pred_fgr, pred_pha,
-                    true_fgr, true_pha,
-                    downsample_ratio
+                    true_fgr, true_pha
                 )
             else:
                 pred_msk = output['msk']
@@ -454,6 +452,8 @@ class Trainer:
             for loss_name, loss_value in loss.items():
                 self.writer.add_scalar(f'mat_{tag}/{loss_name}', loss_value, self.step)
 
+        if tag == 'hr':
+            return
         if self.rank == 0 and self.step % self.args.log_train_images_interval == 0:
             # self.writer.add_image(f'mat_{tag}/pred_fgr', make_grid(pred_fgr.flatten(0, 1), nrow=pred_fgr.size(0)), self.step)
             # self.writer.add_image(f'mat_{tag}/pred_pha', make_grid(pred_pha.flatten(0, 1), nrow=pred_pha.size(0)), self.step)
@@ -492,15 +492,15 @@ class Trainer:
             #     self.writer.add_scalar(f'seg_/{loss_name}', loss_value, self.step)
             self.writer.add_scalar(f'{log_label}_loss', loss, self.step)
 
-        if self.rank == 0 and (self.step - self.step % 2) % self.args.log_train_images_interval == 0:
-            # self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.batch_size_per_gpu), self.step)
-            # self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
-            # self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
-            # self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
-            self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.seq_length_lr), self.step)
-            self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
-            self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
-            self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
+        # if self.rank == 0 and (self.step - self.step % 2) % self.args.log_train_images_interval == 0:
+        #     # self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.batch_size_per_gpu), self.step)
+        #     # self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
+        #     # self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
+        #     # self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.batch_size_per_gpu), self.step)
+        #     self.writer.add_image(f'{log_label}_pred_seg', make_grid(pred_seg.flatten(0, 1).float().sigmoid(), nrow=self.args.seq_length_lr), self.step)
+        #     self.writer.add_image(f'{log_label}_true_seg', make_grid(true_seg.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
+        #     self.writer.add_image(f'{log_label}_img', make_grid(true_img.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
+        #     self.writer.add_image(f'{log_label}_msk', make_grid(pred_msk.flatten(0, 1), nrow=self.args.seq_length_lr), self.step)
 
     def load_next_mat_hr_sample(self):
         try:

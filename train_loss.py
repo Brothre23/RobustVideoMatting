@@ -3,6 +3,7 @@ import torch
 from torch.nn import functional as F
 import numpy as np
 import cv2
+import kornia
 
 # --------------------------------------------------------------------------------- Train Loss
 
@@ -34,7 +35,7 @@ def lr_matting_loss(pred_msk, pred_fgr, pred_pha_os1, pred_pha_os4, pred_pha_os8
     return loss    
 
 
-def hr_matting_loss(pred_msk, pred_fgr, pred_pha, true_fgr, true_pha, downsample_ratio):
+def hr_matting_loss(pred_fgr, pred_pha, true_fgr, true_pha):
     loss = {}
     loss['total'] = 0.0
 
