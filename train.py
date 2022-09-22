@@ -348,7 +348,6 @@ class Trainer:
         self.optimizer = Adam([
             {'params': self.model.mask_net.parameters(), 'lr': self.args.learning_rate_mask_net},
             {'params': self.model.backbone.parameters(), 'lr': self.args.learning_rate_backbone},
-            # {'params': self.model.se.parameters(), 'lr': self.args.learning_rate_se},
             {'params': self.model.aspp.parameters(), 'lr': self.args.learning_rate_aspp},
             {'params': self.model.decoder.parameters(), 'lr': self.args.learning_rate_decoder},
             {'params': self.model.refiner.parameters(), 'lr': self.args.learning_rate_refiner}
@@ -359,12 +358,10 @@ class Trainer:
             checkpoint = torch.load(self.args.checkpoint, map_location=f'cuda:{self.rank}')
             self.log(self.model.load_state_dict(checkpoint['model']))
             self.log(self.optimizer.load_state_dict(checkpoint['optimizer']))
-            # self.log(self.scheduler.load_state_dict(checkpoint['scheduler']))
 
         self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
         self.model_ddp = DDP(self.model, device_ids=[self.rank], broadcast_buffers=False, find_unused_parameters=True)
 
-        # self.scheduler = lr_scheduler.ExponentialLR(optimizer=self.optimizer, gamma=0.8)
         self.scaler = GradScaler()
 
     def init_writer(self):

@@ -114,14 +114,14 @@ class MattingNetwork(nn.Module):
                 pha = pha.clamp(0., 1.)
 
                 return {
-                    'msk':          msk,
-                    'seg':          msk,    # none
-                    'pha_os1':      msk,    # none
-                    'pha_os4':      msk,    # none
-                    'pha_os8':      msk,    # none
-                    'weight_os1':   msk,    # none
-                    'weight_os4':   msk,    # none
-                    'fgr':          msk,    # none
+                    'msk':          None,
+                    'seg':          None,    # none
+                    'pha_os1':      None,    # none
+                    'pha_os4':      None,    # none
+                    'pha_os8':      None,    # none
+                    'weight_os1':   None,    # none
+                    'weight_os4':   None,    # none
+                    'fgr':          None,    # none
                     'pha_lg':       pha,
                     'fgr_lg':       fgr,
                     'r1':           r1,
@@ -132,16 +132,16 @@ class MattingNetwork(nn.Module):
             else:
                 # return [msk, pha_os4, pha_os8, weight_os1, weight_os4, fgr, pha_os1, *rec]
                 return {
-                    'msk':          msk,
-                    'seg':          msk,    # none
+                    'msk':          None,
+                    'seg':          None,    # none
                     'pha_os1':      pha_os1,
                     'pha_os4':      pha_os4,
                     'pha_os8':      pha_os8,
                     'weight_os1':   weight_os1,
                     'weight_os4':   weight_os4,
                     'fgr':          fgr,
-                    'pha_lg':       msk,    # none
-                    'fgr_lg':       msk,    # none
+                    'pha_lg':       None,    # none
+                    'fgr_lg':       None,    # none
                     'r1':           r1,
                     'r2':           r2,
                     'r3':           r3,
@@ -152,16 +152,16 @@ class MattingNetwork(nn.Module):
             seg = output['seg']
             # return [msk, seg, *rec]
             return {
-                'msk':              msk,
+                'msk':              None,
                 'seg':              seg,
-                'pha_os1':          msk,    # none
-                'pha_os4':          msk,    # none
-                'pha_os8':          msk,    # none
-                'weight_os1':       msk,    # none
-                'weight_os4':       msk,    # none
-                'fgr':              msk,    # none
-                'pha_lg':           msk,    # none
-                'fgr_lg':           msk,    # none
+                'pha_os1':          None,    # none
+                'pha_os4':          None,    # none
+                'pha_os8':          None,    # none
+                'weight_os1':       None,    # none
+                'weight_os4':       None,    # none
+                'fgr':              None,    # none
+                'pha_lg':           None,    # none
+                'fgr_lg':           None,    # none
                 'r1':               r1,
                 'r2':               r2,
                 'r3':               r3,

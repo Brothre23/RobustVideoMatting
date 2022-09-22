@@ -106,11 +106,11 @@ def convert_video(model,
         if output_composition is not None:
             writer_com = ImageSequenceWriter(output_composition, 'png')
         if output_alpha is not None:
-            writer_pha = ImageSequenceWriter(output_alpha, 'jpg')
+            writer_pha = ImageSequenceWriter(output_alpha, 'png')
         if output_foreground is not None:
-            writer_fgr = ImageSequenceWriter(output_foreground, 'jpg')
+            writer_fgr = ImageSequenceWriter(output_foreground, 'png')
         if output_source is not None:
-            writer_src = ImageSequenceWriter(output_source, 'jpg')
+            writer_src = ImageSequenceWriter(output_source, 'png')
 
     # Inference
     model = model.eval()
@@ -122,8 +122,6 @@ def convert_video(model,
     # if (output_composition is not None) and (output_type == 'video'):
     if (output_composition is not None):
         bgr = torch.tensor([120, 255, 155], device=device, dtype=dtype).div(255).view(1, 1, 3, 1, 1)
-
-    # kernels = [None] + [cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) for size in range(1, 31)]
     
     try:
         with torch.no_grad():
@@ -191,8 +189,8 @@ class Converter:
     def __init__(self, variant: str, checkpoint: str, device: str):
         self.model = MattingNetwork(variant).eval().to(device)
         self.model.load_state_dict(torch.load(checkpoint, map_location=device)['model'])
-        self.model = torch.jit.script(self.model)
-        self.model = torch.jit.freeze(self.model)
+        # self.model = torch.jit.script(self.model)
+        # self.model = torch.jit.freeze(self.model)
         self.device = device
     
     def convert(self, *args, **kwargs):
@@ -229,7 +227,7 @@ if __name__ == '__main__':
         output_source=args.output_source,
         output_composition=args.output_composition,
         output_alpha=args.output_alpha,
-        output_foreground=args.output_foreground,
+        # output_foreground=args.output_foreground,
         output_video_mbps=args.output_video_mbps,
         seq_chunk=args.seq_chunk,
         num_workers=args.num_workers,
