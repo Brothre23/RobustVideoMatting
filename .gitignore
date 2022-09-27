@@ -5,5 +5,6 @@ log/
 model/D3D/build
 model/D3D/D3D.egg-info
 model/D3D/dist
+*.sh
 *.pth
 token.txt
